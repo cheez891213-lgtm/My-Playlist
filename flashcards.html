@@ -1334,7 +1334,6 @@ const KO_ENDING_MAP = [
 ].sort((a,b)=>b[0].length-a[0].length);
 function lemmatizeKo(word){
   const w = word;
-  if(w.endsWith('다')) return w;
   for(const [suf, repl] of KO_ENDING_MAP){
     if(w.endsWith(suf) && w.length > suf.length) return w.slice(0, -suf.length) + repl;
   }
