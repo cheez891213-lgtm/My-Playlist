@@ -1220,6 +1220,30 @@ const LANG_NAMES = { en:'English', ja:'Japanese', ko:'Korean' };
 // Primary: ask Claude to translate the whole word list in one request.
 // Only works while this page is opened inside claude.ai (the artifact runtime
 // proxies the request); returns null if that's not available so we can fall back.
+// Your own Cloudflare Worker URL that proxies to Gemini (see setup instructions).
+// Once deployed, paste the URL here - everyone visiting the site will then get
+// real AI translation without needing their own API key.
+const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
+
+// Primary (when configured): call your own Gemini proxy Worker, which works
+// on any hosting (GitHub Pages, etc), not just inside claude.ai.
+async function translateBatchWithGeminiProxy(words, lang){
+  if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
+  const langName = LANG_NAMES[lang] || lang;
+  try{
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ words, langName })
+    });
+    if(!res.ok) return null;
+    const text = await res.text();
+    const clean = text.replace(/```json|```/g,'').trim();
+    const parsed = JSON.parse(clean);
+    return (parsed && typeof parsed === 'object' && !parsed.error) ? parsed : null;
+  }catch(e){ return null; }
+}
+
 async function translateBatchWithClaude(words, lang){
   const langName = LANG_NAMES[lang] || lang;
   const prompt = `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, and (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word). Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
@@ -1349,6 +1373,18 @@ function localLemmatize(word, lang){
 }
 
 async function translateAllWords(words, lang, onProgress){
+  const geminiResult = await translateBatchWithGeminiProxy(words, lang);
+  if(geminiResult){
+    words.forEach(w=>{
+      const entry = geminiResult[w];
+      if(entry && typeof entry === 'object'){
+        onProgress(w, entry.translation || '', entry.base || w);
+      }else{
+        onProgress(w, entry || '', w);
+      }
+    });
+    return;
+  }
   const claudeResult = await translateBatchWithClaude(words, lang);
   if(claudeResult){
     words.forEach(w=>{
