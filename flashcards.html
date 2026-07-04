@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>字卡抽屜</title>
+<title>My Playlist 🎀</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Sans+KR:wght@400;500;700;900&family=Beau+Rivage&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -326,6 +326,15 @@
     z-index:50;
   }
   .toast.show{opacity:1;}
+  .site-footer{
+    text-align:center;
+    margin-top:40px;
+    padding-top:18px;
+    color:var(--muted);
+    font-size:11px;
+    font-family:'IBM Plex Mono',monospace;
+    letter-spacing:0.3px;
+  }
 
   @media(max-width:480px){
     .logo-title{height:80px;max-width:60vw;object-fit:contain;}
@@ -477,6 +486,8 @@
     </div>
     <div id="emptyStudy" class="empty" style="display:none;">還沒有字卡可以背誦，先到「整理」新增幾張吧。</div>
   </div>
+
+  <footer class="site-footer">© 2026 YK. All rights reserved</footer>
 </div>
 
 <div class="toast" id="toast"></div>
