@@ -1366,7 +1366,13 @@ function localLemmatize(word, lang){
   return word;
 }
 
-async function translateAllWords(words, lang, onProgress){
+function chunkArray(arr, size){
+  const chunks = [];
+  for(let i=0;i<arr.length;i+=size) chunks.push(arr.slice(i, i+size));
+  return chunks;
+}
+
+async function translateWordChunk(words, lang, onProgress){
   const geminiResult = await translateBatchWithGeminiProxy(words, lang);
   if(geminiResult){
     words.forEach(w=>{
@@ -1397,6 +1403,14 @@ async function translateAllWords(words, lang, onProgress){
     const base = localLemmatize(w, lang);
     onProgress(w, t, base);
     await new Promise(r=>setTimeout(r, 200));
+  }
+}
+
+async function translateAllWords(words, lang, onProgress){
+  const CHUNK_SIZE = 25;
+  const chunks = chunkArray(words, CHUNK_SIZE);
+  for(const chunk of chunks){
+    await translateWordChunk(chunk, lang, onProgress);
   }
 }
 
