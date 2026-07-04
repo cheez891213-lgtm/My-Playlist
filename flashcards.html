@@ -354,6 +354,13 @@
     text-decoration:underline;
   }
   .album-detail-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  .quiz-mode-tabs{display:flex;justify-content:center;gap:8px;margin-bottom:16px;}
+  .quiz-mode-btn{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;
+    padding:7px 16px;border-radius:999px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink-soft);cursor:pointer;
+  }
+  .quiz-mode-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .quiz-score{
     text-align:center;font-family:'IBM Plex Mono',monospace;font-size:13px;
     color:var(--ink-soft);margin-bottom:18px;
@@ -373,6 +380,29 @@
   .quiz-choice-btn:hover{background:var(--paper-dark);}
   .quiz-choice-btn.correct{background:var(--green);border-color:var(--green);color:#FFFFFF;}
   .quiz-choice-btn.wrong{background:var(--rust);border-color:var(--rust);color:#FFFFFF;}
+  .fill-sentence{
+    text-align:center;font-family:'Noto Sans TC','Noto Sans KR',sans-serif;
+    font-size:18px;font-weight:600;color:var(--ink);line-height:1.6;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:24px 20px;margin-bottom:12px;max-width:480px;margin-left:auto;margin-right:auto;
+  }
+  .fill-translation{
+    text-align:center;font-family:'Noto Sans TC','Noto Sans KR',sans-serif;
+    font-size:13px;color:var(--ink-soft);margin-bottom:18px;
+  }
+  .fill-input-row{
+    display:flex;gap:10px;max-width:420px;margin:0 auto 12px;
+  }
+  .fill-input-row input{
+    flex:1;font-family:'Noto Sans TC','Noto Sans KR',sans-serif;font-size:15px;
+    padding:11px 14px;border:1px solid var(--line);border-radius:8px;background:#FFFFFF;color:var(--ink);
+  }
+  .fill-feedback{
+    text-align:center;font-family:'IBM Plex Mono',monospace;font-size:13px;
+    min-height:20px;font-weight:600;
+  }
+  .fill-feedback.correct{color:var(--green-dark);}
+  .fill-feedback.wrong{color:var(--rust);}
   .quiz-choice-btn:disabled{cursor:default;}
   .icon-btn{
     width:42px;height:42px;border-radius:50%;
@@ -593,10 +623,28 @@
   <!-- Quiz panel -->
   <div id="panelQuiz" class="panel">
     <div class="study-scope" id="quizScope"></div>
+    <div class="quiz-mode-tabs">
+      <button id="quizModeChoiceBtn" class="quiz-mode-btn active">四選一</button>
+      <button id="quizModeFillBtn" class="quiz-mode-btn">歌詞填空</button>
+    </div>
     <div class="quiz-score" id="quizScoreLabel">答對 0 / 0</div>
-    <div class="quiz-question" id="quizQuestion"></div>
-    <div class="quiz-choices" id="quizChoices"></div>
-    <div id="emptyQuiz" class="empty" style="display:none;">單字太少，至少需要 4 個不同單字才能出題。</div>
+
+    <div id="quizChoiceMode">
+      <div class="quiz-question" id="quizQuestion"></div>
+      <div class="quiz-choices" id="quizChoices"></div>
+      <div id="emptyQuiz" class="empty" style="display:none;">單字太少，至少需要 4 個不同單字才能出題。</div>
+    </div>
+
+    <div id="quizFillMode" style="display:none;">
+      <div class="fill-sentence" id="fillSentence"></div>
+      <div class="fill-translation" id="fillTranslation"></div>
+      <div class="fill-input-row">
+        <input type="text" id="fillInput" placeholder="輸入空格裡的單字…" autocomplete="off">
+        <button class="btn primary" id="fillSubmitBtn">送出</button>
+      </div>
+      <div class="fill-feedback" id="fillFeedback"></div>
+      <div id="emptyFillQuiz" class="empty" style="display:none;">目前沒有帶原句例句的單字，請先用「從歌詞匯入」建立單字集（手動新增的單字沒有例句）。</div>
+    </div>
   </div>
 
   <footer class="site-footer">
@@ -1346,10 +1394,38 @@ document.getElementById('dontKnowBtn').addEventListener('click', (e)=>{
 /* ---- Quiz ---- */
 let quizScore = { correct: 0, total: 0 };
 let quizAnswer = null;
+let quizMode = 'choice';
 const quizQuestionEl = document.getElementById('quizQuestion');
 const quizChoicesEl = document.getElementById('quizChoices');
 const quizScoreLabel = document.getElementById('quizScoreLabel');
 const emptyQuiz = document.getElementById('emptyQuiz');
+const quizChoiceModeEl = document.getElementById('quizChoiceMode');
+const quizFillModeEl = document.getElementById('quizFillMode');
+const fillSentenceEl = document.getElementById('fillSentence');
+const fillTranslationEl = document.getElementById('fillTranslation');
+const fillInputEl = document.getElementById('fillInput');
+const fillFeedbackEl = document.getElementById('fillFeedback');
+const emptyFillQuiz = document.getElementById('emptyFillQuiz');
+let fillAnswerCard = null;
+let fillSurfaceAnswer = '';
+let fillAwaitingNext = false;
+
+document.getElementById('quizModeChoiceBtn').addEventListener('click', ()=>{
+  quizMode = 'choice';
+  document.getElementById('quizModeChoiceBtn').classList.add('active');
+  document.getElementById('quizModeFillBtn').classList.remove('active');
+  quizChoiceModeEl.style.display = 'block';
+  quizFillModeEl.style.display = 'none';
+  startQuiz();
+});
+document.getElementById('quizModeFillBtn').addEventListener('click', ()=>{
+  quizMode = 'fill';
+  document.getElementById('quizModeFillBtn').classList.add('active');
+  document.getElementById('quizModeChoiceBtn').classList.remove('active');
+  quizChoiceModeEl.style.display = 'none';
+  quizFillModeEl.style.display = 'block';
+  startQuiz();
+});
 
 function renderQuizScope(){
   const el = document.getElementById('quizScope');
@@ -1370,7 +1446,8 @@ function startQuiz(){
   quizScore = { correct: 0, total: 0 };
   quizScoreLabel.textContent = '答對 0 / 0';
   renderQuizScope();
-  pickQuizQuestion();
+  if(quizMode === 'fill') pickFillQuestion();
+  else pickQuizQuestion();
 }
 
 function pickQuizQuestion(){
@@ -1415,6 +1492,85 @@ function handleQuizAnswer(chosenId, btnEl){
   quizScoreLabel.textContent = `答對 ${quizScore.correct} / ${quizScore.total}`;
   setTimeout(pickQuizQuestion, 900);
 }
+
+function getFillPool(){
+  return getStudyPool().filter(c => c.sourceLine && c.surfaceWord);
+}
+function buildBlankSentence(line, surfaceWord, lang){
+  if(LATIN_LANGS.has(lang)){
+    const re = new RegExp(`\\b${surfaceWord.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`, 'i');
+    const m = line.match(re);
+    if(!m) return null;
+    return { blanked: line.replace(re, '＿＿＿'), surface: m[0] };
+  }
+  const idx = line.indexOf(surfaceWord);
+  if(idx === -1) return null;
+  return { blanked: line.slice(0, idx) + '＿＿＿' + line.slice(idx + surfaceWord.length), surface: surfaceWord };
+}
+function pickFillQuestion(){
+  const pool = getFillPool();
+  if(!pool.length){
+    emptyFillQuiz.style.display = 'block';
+    fillSentenceEl.style.display = 'none';
+    fillTranslationEl.style.display = 'none';
+    document.querySelector('.fill-input-row').style.display = 'none';
+    fillFeedbackEl.textContent = '';
+    return;
+  }
+  emptyFillQuiz.style.display = 'none';
+  fillSentenceEl.style.display = 'block';
+  fillTranslationEl.style.display = 'block';
+  document.querySelector('.fill-input-row').style.display = 'flex';
+  fillFeedbackEl.textContent = '';
+  fillFeedbackEl.className = 'fill-feedback';
+  fillInputEl.value = '';
+  fillInputEl.disabled = false;
+  fillAwaitingNext = false;
+  let attempt = null, card = null;
+  const shuffled = shuffleArray(pool.slice());
+  for(const c of shuffled){
+    const built = buildBlankSentence(c.sourceLine, c.surfaceWord, guessCardLang(c));
+    if(built){ attempt = built; card = c; break; }
+  }
+  if(!attempt){
+    emptyFillQuiz.style.display = 'block';
+    fillSentenceEl.style.display = 'none';
+    fillTranslationEl.style.display = 'none';
+    document.querySelector('.fill-input-row').style.display = 'none';
+    return;
+  }
+  fillAnswerCard = card;
+  fillSurfaceAnswer = attempt.surface;
+  fillSentenceEl.textContent = attempt.blanked;
+  fillTranslationEl.textContent = card.sourceLineTranslation || '（沒有句子翻譯）';
+  fillInputEl.focus();
+}
+function guessCardLang(c){
+  if(/[\uAC00-\uD7A3]/.test(c.surfaceWord)) return 'ko';
+  if(/[\u3040-\u30FF\u4E00-\u9FFF]/.test(c.surfaceWord)) return 'ja';
+  return 'en';
+}
+function submitFillAnswer(){
+  if(fillAwaitingNext || !fillAnswerCard) return;
+  const raw = fillInputEl.value.trim();
+  if(!raw) return;
+  const base = splitFrontBase(fillAnswerCard.front).main;
+  const norm = s => s.trim().toLowerCase();
+  const isCorrect = norm(raw) === norm(fillSurfaceAnswer) || norm(raw) === norm(base);
+  fillAwaitingNext = true;
+  fillInputEl.disabled = true;
+  quizScore.total++;
+  if(isCorrect) quizScore.correct++;
+  quizScoreLabel.textContent = `答對 ${quizScore.correct} / ${quizScore.total}`;
+  fillFeedbackEl.textContent = isCorrect ? '答對了！✅' : `答錯了，正確答案：${fillSurfaceAnswer}`;
+  fillFeedbackEl.className = 'fill-feedback ' + (isCorrect ? 'correct' : 'wrong');
+  triggerButtonFeedback(document.getElementById('fillSubmitBtn'), isCorrect);
+  setTimeout(pickFillQuestion, 1400);
+}
+document.getElementById('fillSubmitBtn').addEventListener('click', submitFillAnswer);
+fillInputEl.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') submitFillAnswer();
+});
 
 document.getElementById('studyThisAlbumBtn').addEventListener('click', ()=>{
   studyAlbumFilter = currentAlbumId;
@@ -1584,47 +1740,41 @@ let lyricsCandidates = [];
 
 const LANG_NAMES = { en:'English', ja:'Japanese', ko:'Korean' };
 
-// Primary: ask Claude to translate the whole word list in one request.
-// Only works while this page is opened inside claude.ai (the artifact runtime
-// proxies the request); returns null if that's not available so we can fall back.
 // Your own Cloudflare Worker URL that proxies to Gemini (see setup instructions).
-// Once deployed, paste the URL here - everyone visiting the site will then get
-// real AI translation without needing their own API key.
+// This Worker just relays whatever prompt the frontend sends it, so future
+// prompt changes on this page never require touching the Worker again.
 const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 
-// Primary (when configured): call your own Gemini proxy Worker, which works
-// on any hosting (GitHub Pages, etc), not just inside claude.ai.
-async function translateBatchWithGeminiProxy(words, lang){
+// Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
+async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
-  const langName = LANG_NAMES[lang] || lang;
   try{
     const res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ words, langName })
+      body: JSON.stringify({ prompt })
     });
     if(!res.ok) return null;
     const text = await res.text();
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    if(!parsed || typeof parsed !== 'object' || parsed.error) return null;
-    if(Object.keys(parsed).length === 0) return null;
-    const gotAny = words.some(w => parsed[w] && (typeof parsed[w] === 'object' ? (parsed[w].translation) : parsed[w]));
-    if(!gotAny) return null;
+    if(parsed === null || parsed === undefined) return null;
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) return null;
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0) return null;
+    if(Array.isArray(parsed) && parsed.length === 0) return null;
     return parsed;
   }catch(e){ return null; }
 }
 
-async function translateBatchWithClaude(words, lang){
-  const langName = LANG_NAMES[lang] || lang;
-  const prompt = `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word), and (3) "reading" - ONLY if the language is Japanese and the base form contains kanji, give its hiragana reading; otherwise leave "reading" as an empty string. Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"...","reading":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
+// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
+async function callClaude(prompt){
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 1500,
+        max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -1633,8 +1783,48 @@ async function translateBatchWithClaude(words, lang){
     const text = (data.content || []).map(b=>b.text || '').join('');
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    return (parsed && typeof parsed === 'object') ? parsed : null;
+    return parsed ?? null;
   }catch(e){ return null; }
+}
+
+// Tries your Gemini Worker first, then Claude (claude.ai only). Returns parsed
+// JSON (object or array) or null if neither is available/working.
+async function callAI(prompt){
+  const g = await callGeminiProxy(prompt);
+  if(g) return g;
+  const c = await callClaude(prompt);
+  if(c) return c;
+  return null;
+}
+
+function buildWordTranslationPrompt(words, langName){
+  return `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word), and (3) "reading" - ONLY if the language is Japanese and the base form contains kanji, give its hiragana reading; otherwise leave "reading" as an empty string. Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"...","reading":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
+}
+
+async function translateBatchWithGeminiProxy(words, lang){
+  const langName = LANG_NAMES[lang] || lang;
+  const parsed = await callGeminiProxy(buildWordTranslationPrompt(words, langName));
+  if(!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const gotAny = words.some(w => parsed[w] && (typeof parsed[w] === 'object' ? parsed[w].translation : parsed[w]));
+  return gotAny ? parsed : null;
+}
+
+async function translateBatchWithClaude(words, lang){
+  const langName = LANG_NAMES[lang] || lang;
+  const parsed = await callClaude(buildWordTranslationPrompt(words, langName));
+  return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+}
+
+// Full-text AI extraction for Japanese: instead of guessing word boundaries
+// locally (which mis-splits things like conditional/conjugation endings),
+// hand the AI the whole lyrics text and let it do real segmentation, giving
+// back word + base + reading + translation + the exact source line together.
+// Falls back to the local tokenizer (tokenizeLyrics) if no AI is available.
+async function extractJapaneseWordsWithAI(text){
+  const prompt = `You are building a vocabulary list from Japanese song lyrics for a language learner. From the lyrics below, extract each distinct meaningful content word (nouns, verbs, adjectives, adverbs) actually used in the text - correctly segmented as real Japanese words (do not split a word in the middle of a conjugation ending, and do not merge unrelated words together). Exclude particles (は, が, を, に, で, と, も, の, etc.), personal pronouns (私, 君, あなた, 彼, 彼女, etc.), and other pure grammatical function words. Do not include duplicates.\n\nFor each word, provide:\n- "word": the exact inflected/conjugated surface form as it appears in the lyrics\n- "base": the dictionary/base form (if already base form, repeat "word")\n- "reading": the hiragana reading of the base form if it contains kanji, otherwise an empty string\n- "translation": a Traditional Chinese (zh-TW) translation fitting the lyrical context\n- "sourceLine": the exact original lyric line (verbatim) that this word came from\n\nReply with ONLY a raw JSON array like [{"word":"...","base":"...","reading":"...","translation":"...","sourceLine":"..."}] - no markdown fences, no explanation.\n\nLyrics:\n${text}`;
+  const parsed = await callAI(prompt);
+  if(!Array.isArray(parsed) || !parsed.length) return null;
+  return parsed.filter(e => e && e.word);
 }
 
 // Fallback: free public translation APIs, word by word (used if the Claude
@@ -1827,17 +2017,60 @@ function closeLyricsForm(){
 document.getElementById('cancelLyricsBtn').addEventListener('click', closeLyricsForm);
 document.getElementById('cancelLyricsReviewBtn').addEventListener('click', closeLyricsForm);
 
+function renderLyricsCandidateRows(){
+  lyricsList.innerHTML = '';
+  lyricsCandidates.forEach(c=>{
+    const hint = buildWordHint(c.word, c.base, c.reading);
+    const row = document.createElement('div');
+    row.className = 'lyrics-item';
+    row.innerHTML = `<input type="checkbox" checked data-word="${escapeHtml(c.word)}"><span class="lw">${escapeHtml(c.word)}${hint ? `<span class="front-hint">（${escapeHtml(hint)}）</span>` : ''}</span><span class="lt">${escapeHtml(c.translation || '（沒有翻譯）')}</span>`;
+    lyricsList.appendChild(row);
+  });
+}
+
 document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>{
   const albumName = albumNameInput.value.trim();
   const text = lyricsInput.value.trim();
   const lang = lyricsLangSelect.value;
   if(!albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
   if(!text){ showToast('請先貼上歌詞'); return; }
-  const words = tokenizeLyrics(text, lang);
-  if(!words.length){ showToast('沒有找到可用的新單字'); return; }
+
   lyricsList.innerHTML = '';
-  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w, reading:'' }));
   lyricsStatus.style.display = 'block';
+  lyricsSelectRow.style.display = 'none';
+  lyricsConfirmRow.style.display = 'none';
+
+  if(lang === 'ja'){
+    lyricsStatus.textContent = '交給 AI 分析日文斷詞與翻譯中…';
+    const aiWords = await extractJapaneseWordsWithAI(text);
+    if(aiWords && aiWords.length){
+      lyricsCandidates = aiWords.map(e=>({
+        word: e.word, translation: e.translation || '（沒有翻譯）', base: e.base || e.word,
+        reading: e.reading || '', sourceLine: e.sourceLine || ''
+      }));
+      renderLyricsCandidateRows();
+      lyricsStatus.textContent = `完成！取消勾選你不需要的單字，再按下方加入。`;
+      lyricsSelectRow.style.display = 'flex';
+      lyricsConfirmRow.style.display = 'flex';
+      return;
+    }
+    lyricsStatus.textContent = 'AI 暫時無法使用，改用內建規則分析（準確度較低）…';
+  }
+
+  const words = tokenizeLyrics(text, lang);
+  if(!words.length){ showToast('沒有找到可用的新單字'); lyricsStatus.style.display = 'none'; return; }
+  const lyricLines = text.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  function findSourceLine(word){
+    if(LATIN_LANGS.has(lang)){
+      const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`, 'i');
+      for(const line of lyricLines){ if(re.test(line)) return line; }
+    }else{
+      for(const line of lyricLines){ if(line.includes(word)) return line; }
+    }
+    return '';
+  }
+  lyricsList.innerHTML = '';
+  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w, reading:'', sourceLine: findSourceLine(w) }));
   lyricsStatus.textContent = `找到 ${words.length} 個單字，翻譯中… 0/${words.length}`;
   words.forEach(w=>{
     const row = document.createElement('div');
@@ -1871,6 +2104,7 @@ document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>
 document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=>{
   const checked = Array.from(lyricsList.querySelectorAll('input[type=checkbox]:checked')).map(cb=>cb.dataset.word);
   if(!checked.length){ showToast('沒有選取任何單字'); return; }
+  const lang = lyricsLangSelect.value;
   const newAlbum = {
     id: uid(),
     name: albumNameInput.value.trim(),
@@ -1880,13 +2114,38 @@ document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=
   };
   albums.push(newAlbum);
   await saveAlbums(albums);
+  const uniqueLines = Array.from(new Set(checked.map(w=>{
+    const c = lyricsCandidates.find(x=>x.word===w);
+    return c && c.sourceLine ? c.sourceLine : null;
+  }).filter(Boolean)));
+  const lineTranslations = {};
+  if(uniqueLines.length){
+    const langName = LANG_NAMES[lang] || lang;
+    const sentencePrompt = `Translate each of the following ${langName} song lyric lines into natural Traditional Chinese (zh-TW). Reply with ONLY a raw JSON object mapping each original line (exact text) to its Chinese translation - no markdown fences, no explanation.\n\nLines: ${JSON.stringify(uniqueLines)}`;
+    const aiLines = await callAI(sentencePrompt);
+    if(aiLines && typeof aiLines === 'object' && !Array.isArray(aiLines)){
+      uniqueLines.forEach(line=>{ if(aiLines[line]) lineTranslations[line] = aiLines[line]; });
+    }
+    const stillMissing = uniqueLines.filter(line => !lineTranslations[line]);
+    for(const line of stillMissing){
+      let t = await translateViaGoogle(line, lang);
+      if(!t) t = await translateViaMyMemory(line, lang);
+      lineTranslations[line] = t || '';
+      await new Promise(r=>setTimeout(r, 150));
+    }
+  }
   let added = 0;
   checked.forEach(w=>{
     const c = lyricsCandidates.find(x=>x.word===w);
     if(!c) return;
     const hint = buildWordHint(c.word, c.base, c.reading);
     const front = hint ? `${c.word}（${hint}）` : c.word;
-    cards.push({ id: uid(), front, back: c.translation, image: null, albumId: newAlbum.id, createdAt: Date.now() });
+    cards.push({
+      id: uid(), front, back: c.translation, image: null, albumId: newAlbum.id, createdAt: Date.now(),
+      surfaceWord: c.word,
+      sourceLine: c.sourceLine || '',
+      sourceLineTranslation: c.sourceLine ? (lineTranslations[c.sourceLine] || '') : ''
+    });
     added++;
   });
   await saveCards(cards);
