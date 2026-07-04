@@ -476,15 +476,15 @@
     <!-- Library view: grid of word-collection "albums" -->
     <div id="libraryView">
       <div class="lib-header">
-        <div class="lib-header-title">你的單字集</div>
+        <div class="lib-header-title">你的專輯</div>
         <div class="lib-header-actions">
-        <button class="icon-add-btn" id="openLyricsBtn" aria-label="新增單字集">+</button>
+        <button class="icon-add-btn" id="openLyricsBtn" aria-label="新增專輯">+</button>
         <div class="menu-wrap">
           <button class="icon-add-btn" id="toggleDeleteModeBtn" aria-label="更多選項">⋯</button>
           <div class="menu-dropdown" id="menuDropdown">
             <button class="menu-item" id="exportDataBtn">⇩ 匯出備份</button>
             <button class="menu-item" id="importDataBtn">⇧ 匯入備份</button>
-            <button class="menu-item" id="deleteModeMenuBtn">🗑 編輯／刪除單字集</button>
+            <button class="menu-item" id="deleteModeMenuBtn">🗑 編輯／刪除專輯</button>
           </div>
         </div>
         <input type="file" id="importFileInput" accept="application/json" style="display:none;">
@@ -516,7 +516,6 @@
         <div class="form-row">
           <label>歌詞語言</label>
           <select id="lyricsLangSelect">
-            <option value="en">English 英文</option>
             <option value="ja">日本語 日文</option>
             <option value="ko">한국어 韓文</option>
           </select>
@@ -532,19 +531,19 @@
         </div>
         <div class="lyrics-list" id="lyricsList"></div>
         <div class="form-actions" id="lyricsConfirmRow" style="display:none;">
-          <button class="btn primary" id="addLyricsCardsBtn">建立單字集</button>
+          <button class="btn primary" id="addLyricsCardsBtn">建立專輯</button>
           <button class="btn text" id="cancelLyricsReviewBtn">重新輸入</button>
         </div>
       </div>
 
       <div id="albumGrid" class="lib-grid"></div>
       <input type="file" id="editAlbumCoverInput" accept="image/*" style="display:none;">
-      <div id="emptyManage" class="empty" style="display:none;">目前還沒有單字集，點右上角的 + 建立第一個吧。</div>
+      <div id="emptyManage" class="empty" style="display:none;">目前還沒有專輯，點右上角的 + 建立第一個吧。</div>
     </div>
 
     <!-- Album detail view: words listed line by line -->
     <div id="albumDetailView" style="display:none;">
-      <button class="back-btn" id="backToLibraryBtn">‹ 返回單字集</button>
+      <button class="back-btn" id="backToLibraryBtn">‹ 返回專輯</button>
       <div class="album-detail-header">
         <div class="album-cover" id="albumDetailCover"></div>
         <div>
@@ -553,8 +552,8 @@
         </div>
       </div>
       <div class="album-detail-actions">
-        <button class="btn" id="studyThisAlbumBtn">🎧 背誦這個單字集</button>
-        <button class="btn" id="quizThisAlbumBtn">📝 測驗這個單字集</button>
+        <button class="btn" id="studyThisAlbumBtn">🎧 背誦這個專輯</button>
+        <button class="btn" id="quizThisAlbumBtn">📝 測驗這個專輯</button>
       </div>
 
       <button class="add-btn" id="openFormBtn" style="margin:16px 0;">+ 新增一個單字</button>
@@ -583,7 +582,7 @@
       </div>
 
       <div id="wordList" class="word-list"></div>
-      <div id="emptyAlbum" class="empty" style="display:none;">這個單字集還沒有單字。</div>
+      <div id="emptyAlbum" class="empty" style="display:none;">這個專輯還沒有單字。</div>
     </div>
   </div>
 
@@ -643,7 +642,7 @@
         <button class="btn primary" id="fillSubmitBtn">送出</button>
       </div>
       <div class="fill-feedback" id="fillFeedback"></div>
-      <div id="emptyFillQuiz" class="empty" style="display:none;">目前沒有帶原句例句的單字，請先用「從歌詞匯入」建立單字集（手動新增的單字沒有例句）。</div>
+      <div id="emptyFillQuiz" class="empty" style="display:none;">目前沒有帶原句例句的單字，請先用「從歌詞匯入」建立專輯（手動新增的單字沒有例句）。</div>
     </div>
   </div>
 
@@ -1082,14 +1081,14 @@ function renderLibrary(){
     el.className = 'lib-card';
     el.innerHTML = `
       <button class="lib-edit-cover-badge" aria-label="修改封面圖">✎</button>
-      <button class="lib-delete-badge" aria-label="刪除單字集">×</button>
+      <button class="lib-delete-badge" aria-label="刪除專輯">×</button>
       <div class="lib-cover">${coverImg ? `<img src="${coverImg}">` : HEART_SVG}</div>
       <div class="lib-title">${escapeHtml(al.name)}</div>
       <div class="lib-meta">${al.artist ? escapeHtml(al.artist) + ' • ' : ''}${list.length} 個單字</div>
     `;
     el.querySelector('.lib-delete-badge').addEventListener('click', async (e)=>{
       e.stopPropagation();
-      const ok = await showConfirm(`確定要刪除單字集「${al.name}」嗎？裡面的單字會一併刪除。`);
+      const ok = await showConfirm(`確定要刪除專輯「${al.name}」嗎？裡面的單字會一併刪除。`);
       if(!ok) return;
       cards = cards.filter(c=>c.albumId!==al.id);
       albums = albums.filter(a=>a.id!==al.id);
@@ -1303,10 +1302,10 @@ function refreshStudyOrderIfNeeded(force){
   }
 }
 function studyScopeLabel(){
-  if(!studyAlbumFilter) return '正在背誦：全部單字集';
+  if(!studyAlbumFilter) return '正在背誦：全部專輯';
   const isUncat = studyAlbumFilter === UNCAT;
   const al = isUncat ? { name:'未分類單字' } : albums.find(a=>a.id===studyAlbumFilter);
-  return `正在背誦：${al ? al.name : '（已刪除的單字集）'}`;
+  return `正在背誦：${al ? al.name : '（已刪除的專輯）'}`;
 }
 function renderStudyScope(){
   const el = document.getElementById('studyScope');
@@ -2150,7 +2149,7 @@ document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=
   });
   await saveCards(cards);
   closeLyricsForm();
-  showToast(`已建立單字集「${newAlbum.name}」，加入 ${added} 個單字`);
+  showToast(`已建立專輯「${newAlbum.name}」，加入 ${added} 個單字`);
   openAlbum(newAlbum.id);
 });
 
