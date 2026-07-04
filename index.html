@@ -34,7 +34,7 @@
   .wrap{max-width:760px;margin:0 auto;padding:28px 20px 60px;}
 
   header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:nowrap;gap:12px;}
-  .header-right{display:flex;align-items:center;gap:10px;flex-shrink:0;align-self:flex-start;margin-top:34px;}
+  .header-right{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex-shrink:0;align-self:flex-start;margin-top:34px;}
   .logo-title{
     height:168px;
     width:auto;
@@ -96,6 +96,21 @@
   }
   .icon-add-btn:hover{background:var(--paper-dark);}
   .lib-header-actions{display:flex;align-items:center;gap:8px;}
+  .menu-wrap{position:relative;}
+  .menu-dropdown{
+    display:none;position:absolute;top:calc(100% + 8px);right:0;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 8px 20px rgba(0,0,0,0.12);min-width:170px;
+    overflow:hidden;z-index:20;
+  }
+  .menu-dropdown.open{display:block;}
+  .menu-item{
+    display:block;width:100%;text-align:left;
+    padding:11px 14px;border:none;background:none;cursor:pointer;
+    font-family:'Noto Sans TC','Noto Sans KR',sans-serif;font-size:13px;color:var(--ink);
+  }
+  .menu-item:hover{background:var(--paper-dark);}
+  .menu-item + .menu-item{border-top:1px solid var(--line);}
   .lib-delete-badge{
     position:absolute;top:6px;right:6px;
     width:24px;height:24px;border-radius:50%;
@@ -277,7 +292,7 @@
   /* ---- Study view ---- */
   .study-wrap{display:flex;flex-direction:column;align-items:center;}
   .counter{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
-  .stage{perspective:1400px;width:100%;max-width:420px;height:300px;margin-bottom:20px;}
+  .stage{perspective:1400px;width:100%;max-width:420px;height:300px;margin-bottom:20px;position:relative;}
   .card3d{
     position:relative;width:100%;height:100%;
     transform-style:preserve-3d;
@@ -315,7 +330,50 @@
   .face.back .word{font-family:'Noto Sans TC','Noto Sans KR',sans-serif;font-weight:500;font-size:17px;color:var(--green-dark);}
   .hint{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:10px;}
 
-  .controls{display:flex;align-items:center;gap:14px;}
+  .controls{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;max-width:420px;}
+  .controls-center{display:flex;align-items:center;gap:14px;}
+  @keyframes pulseFeedback{
+    0%{transform:scale(1);}
+    45%{transform:scale(1.14);}
+    100%{transform:scale(1);}
+  }
+  .pulse-feedback{animation:pulseFeedback 0.28s ease;}
+  .know-mark{font-size:16px;font-weight:700;}
+  .know-mark.know{background:var(--green);color:#FFFFFF;border-color:var(--green);}
+  .know-mark.know:hover{background:var(--green-dark);}
+  .know-mark.dontknow{background:var(--paper-dark);color:var(--ink-soft);border-color:var(--line);}
+  .know-mark.dontknow:hover{background:var(--line);}
+  .study-scope{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);
+    margin-bottom:14px;
+  }
+  .study-scope .clear-scope{
+    color:var(--rust);cursor:pointer;background:none;border:none;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;
+    text-decoration:underline;
+  }
+  .album-detail-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  .quiz-score{
+    text-align:center;font-family:'IBM Plex Mono',monospace;font-size:13px;
+    color:var(--ink-soft);margin-bottom:18px;
+  }
+  .quiz-question{
+    text-align:center;font-family:'Noto Sans TC','Noto Sans KR',sans-serif;
+    font-size:20px;font-weight:700;color:var(--ink);
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:28px 20px;margin-bottom:20px;
+  }
+  .quiz-choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:420px;margin:0 auto;}
+  .quiz-choice-btn{
+    font-family:'Inter','Noto Sans TC','Noto Sans KR',sans-serif;font-size:15px;font-weight:600;
+    padding:16px 10px;border-radius:10px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);cursor:pointer;
+  }
+  .quiz-choice-btn:hover{background:var(--paper-dark);}
+  .quiz-choice-btn.correct{background:var(--green);border-color:var(--green);color:#FFFFFF;}
+  .quiz-choice-btn.wrong{background:var(--rust);border-color:var(--rust);color:#FFFFFF;}
+  .quiz-choice-btn:disabled{cursor:default;}
   .icon-btn{
     width:42px;height:42px;border-radius:50%;
     border:1px solid var(--ink);background:var(--card);
@@ -372,11 +430,12 @@
       <div class="subtitle" id="storageNote">載入中…</div>
     </div>
     <div class="header-right">
-      <button class="icon-add-btn" id="musicToggleBtn" aria-label="開關背景音樂"></button>
       <div class="tabs">
         <button id="tabManage" class="active">整理</button>
         <button id="tabStudy">背誦</button>
+        <button id="tabQuiz">測驗</button>
       </div>
+      <button class="icon-add-btn" id="musicToggleBtn" aria-label="開關背景音樂"></button>
     </div>
   </header>
   <audio id="bgMusic" loop preload="auto" style="display:none;"></audio>
@@ -390,7 +449,15 @@
         <div class="lib-header-title">你的單字集</div>
         <div class="lib-header-actions">
         <button class="icon-add-btn" id="openLyricsBtn" aria-label="新增單字集">+</button>
-        <button class="icon-add-btn" id="toggleDeleteModeBtn" aria-label="更多選項">⋯</button>
+        <div class="menu-wrap">
+          <button class="icon-add-btn" id="toggleDeleteModeBtn" aria-label="更多選項">⋯</button>
+          <div class="menu-dropdown" id="menuDropdown">
+            <button class="menu-item" id="exportDataBtn">⇩ 匯出備份</button>
+            <button class="menu-item" id="importDataBtn">⇧ 匯入備份</button>
+            <button class="menu-item" id="deleteModeMenuBtn">🗑 編輯／刪除單字集</button>
+          </div>
+        </div>
+        <input type="file" id="importFileInput" accept="application/json" style="display:none;">
       </div>
       </div>
 
@@ -455,6 +522,10 @@
           <div class="album-detail-meta" id="albumDetailMeta"></div>
         </div>
       </div>
+      <div class="album-detail-actions">
+        <button class="btn" id="studyThisAlbumBtn">🎧 背誦這個單字集</button>
+        <button class="btn" id="quizThisAlbumBtn">📝 測驗這個單字集</button>
+      </div>
 
       <button class="add-btn" id="openFormBtn" style="margin:16px 0;">+ 新增一個單字</button>
       <div class="form-card" id="formCard" style="display:none;">
@@ -488,6 +559,7 @@
 
   <!-- Study panel -->
   <div id="panelStudy" class="panel">
+    <div class="study-scope" id="studyScope"></div>
     <div class="study-wrap">
       <div class="counter" id="counter"></div>
       <div class="stage">
@@ -506,12 +578,25 @@
         </div>
       </div>
       <div class="controls">
-        <button class="icon-btn" id="prevBtn" aria-label="上一張">‹</button>
-        <button class="shuffle-btn" id="shuffleBtn">隨機排序</button>
-        <button class="icon-btn" id="nextBtn" aria-label="下一張">›</button>
+        <button class="icon-btn know-mark dontknow" id="dontKnowBtn" aria-label="不熟">✕</button>
+        <div class="controls-center">
+          <button class="icon-btn" id="prevBtn" aria-label="上一張">‹</button>
+          <button class="shuffle-btn" id="shuffleBtn">隨機排序</button>
+          <button class="icon-btn" id="nextBtn" aria-label="下一張">›</button>
+        </div>
+        <button class="icon-btn know-mark know" id="knowBtn" aria-label="認識">✓</button>
       </div>
     </div>
     <div id="emptyStudy" class="empty" style="display:none;">還沒有字卡可以背誦，先到「整理」新增幾張吧。</div>
+  </div>
+
+  <!-- Quiz panel -->
+  <div id="panelQuiz" class="panel">
+    <div class="study-scope" id="quizScope"></div>
+    <div class="quiz-score" id="quizScoreLabel">答對 0 / 0</div>
+    <div class="quiz-question" id="quizQuestion"></div>
+    <div class="quiz-choices" id="quizChoices"></div>
+    <div id="emptyQuiz" class="empty" style="display:none;">單字太少，至少需要 4 個不同單字才能出題。</div>
   </div>
 
   <footer class="site-footer">
@@ -582,6 +667,7 @@ let pendingImage = null;
 let studyOrder = [];
 let studyIndex = 0;
 let flipped = false;
+let studyAlbumFilter = null;
 
 const libraryView = document.getElementById('libraryView');
 const albumDetailView = document.getElementById('albumDetailView');
@@ -632,6 +718,45 @@ musicToggleBtn.addEventListener('click', (e)=>{
     updateMusicIcon();
   }
 });
+
+let sharedAudioCtx = null;
+function getAudioCtx(){
+  if(!sharedAudioCtx){
+    try{ sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+  }
+  return sharedAudioCtx;
+}
+function playTone(freq, duration, volume){
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  try{
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.value = volume;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.stop(ctx.currentTime + duration + 0.02);
+  }catch(e){ /* ignore */ }
+}
+function playFeedbackSound(positive){
+  if(positive){
+    playTone(880, 0.1, 0.14);
+    setTimeout(()=>playTone(1175, 0.12, 0.11), 80);
+  }else{
+    playTone(250, 0.16, 0.1);
+  }
+}
+function triggerButtonFeedback(btn, positive){
+  if(!btn) return;
+  btn.classList.remove('pulse-feedback');
+  void btn.offsetWidth;
+  btn.classList.add('pulse-feedback');
+  playFeedbackSound(positive);
+}
 
 function showToast(msg){
   toast.textContent = msg;
@@ -793,9 +918,66 @@ function backToLibrary(){
   render();
 }
 backToLibraryBtn.addEventListener('click', backToLibrary);
-document.getElementById('toggleDeleteModeBtn').addEventListener('click', ()=>{
+const menuDropdown = document.getElementById('menuDropdown');
+function closeMenuDropdown(){ menuDropdown.classList.remove('open'); }
+document.getElementById('toggleDeleteModeBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  menuDropdown.classList.toggle('open');
+});
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest('.menu-wrap')) closeMenuDropdown();
+});
+document.getElementById('deleteModeMenuBtn').addEventListener('click', ()=>{
   deleteMode = !deleteMode;
   renderLibrary();
+  closeMenuDropdown();
+});
+
+function exportData(){
+  const data = { cards, albums, exportedAt: Date.now(), version: 1 };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `my-playlist-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('已匯出備份檔');
+}
+document.getElementById('exportDataBtn').addEventListener('click', ()=>{
+  exportData();
+  closeMenuDropdown();
+});
+
+const importFileInput = document.getElementById('importFileInput');
+document.getElementById('importDataBtn').addEventListener('click', ()=>{
+  closeMenuDropdown();
+  importFileInput.click();
+});
+importFileInput.addEventListener('change', async ()=>{
+  const file = importFileInput.files[0];
+  importFileInput.value = '';
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data || !Array.isArray(data.cards) || !Array.isArray(data.albums)){
+      showToast('檔案格式不正確');
+      return;
+    }
+    const ok = await showConfirm('匯入將會覆蓋目前所有資料，確定要繼續嗎？');
+    if(!ok) return;
+    cards = data.cards;
+    albums = data.albums;
+    await saveCards(cards);
+    await saveAlbums(albums);
+    backToLibrary();
+    showToast('匯入完成');
+  }catch(e){
+    showToast('匯入失敗，檔案可能損壞');
+  }
 });
 
 const HEART_SVG = '<svg class="cover-fallback" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.53L12 21.35z"/></svg>';
@@ -999,18 +1181,30 @@ function escapeHtml(s){
 /* ---- Tabs ---- */
 const tabManage = document.getElementById('tabManage');
 const tabStudy = document.getElementById('tabStudy');
+const tabQuiz = document.getElementById('tabQuiz');
 const panelManage = document.getElementById('panelManage');
 const panelStudy = document.getElementById('panelStudy');
+const panelQuiz = document.getElementById('panelQuiz');
+function setActiveTab(tab){
+  [tabManage, tabStudy, tabQuiz].forEach(t=>t.classList.remove('active'));
+  [panelManage, panelStudy, panelQuiz].forEach(p=>p.classList.remove('active'));
+  tab.classList.add('active');
+}
 tabManage.addEventListener('click', ()=>{
-  tabManage.classList.add('active'); tabStudy.classList.remove('active');
-  panelManage.classList.add('active'); panelStudy.classList.remove('active');
+  setActiveTab(tabManage);
+  panelManage.classList.add('active');
 });
 tabStudy.addEventListener('click', ()=>{
-  tabStudy.classList.add('active'); tabManage.classList.remove('active');
-  panelStudy.classList.add('active'); panelManage.classList.remove('active');
+  setActiveTab(tabStudy);
+  panelStudy.classList.add('active');
   studyIndex = 0; flipped = false;
   refreshStudyOrderIfNeeded(true);
   renderStudy();
+});
+tabQuiz.addEventListener('click', ()=>{
+  setActiveTab(tabQuiz);
+  panelQuiz.classList.add('active');
+  startQuiz();
 });
 
 /* ---- Study ---- */
@@ -1027,21 +1221,70 @@ studySpeakBtn.addEventListener('click', (e)=>{
   if(currentStudyWord) speakWord(currentStudyWord);
 });
 
+function shuffleArray(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+function cardWeight(c){
+  const streak = c.knownStreak || 0;
+  if(streak <= 0) return 3;
+  if(streak === 1) return 2;
+  return 1;
+}
+function getStudyPool(){
+  return studyAlbumFilter ? cards.filter(c=>cardAlbumId(c)===studyAlbumFilter) : cards;
+}
+function buildWeightedIds(){
+  const list = [];
+  getStudyPool().forEach(c=>{
+    const w = cardWeight(c);
+    for(let i=0;i<w;i++) list.push(c.id);
+  });
+  return shuffleArray(list);
+}
 function refreshStudyOrderIfNeeded(force){
-  const ids = cards.map(c=>c.id);
-  const sameSet = studyOrder.length === ids.length && studyOrder.every(id=>ids.includes(id));
+  const ids = getStudyPool().map(c=>c.id);
+  const currentUnique = Array.from(new Set(studyOrder));
+  const sameSet = currentUnique.length === ids.length && currentUnique.every(id=>ids.includes(id));
   if(force || !sameSet){
-    studyOrder = ids.slice();
+    studyOrder = buildWeightedIds();
     studyIndex = 0;
+  }
+}
+function studyScopeLabel(){
+  if(!studyAlbumFilter) return '正在背誦：全部單字集';
+  const isUncat = studyAlbumFilter === UNCAT;
+  const al = isUncat ? { name:'未分類單字' } : albums.find(a=>a.id===studyAlbumFilter);
+  return `正在背誦：${al ? al.name : '（已刪除的單字集）'}`;
+}
+function renderStudyScope(){
+  const el = document.getElementById('studyScope');
+  if(!el) return;
+  el.innerHTML = studyAlbumFilter
+    ? `<span>${escapeHtml(studyScopeLabel())}</span><button class="clear-scope" id="clearStudyScopeBtn">清除篩選</button>`
+    : '';
+  const clearBtn = document.getElementById('clearStudyScopeBtn');
+  if(clearBtn){
+    clearBtn.addEventListener('click', ()=>{
+      studyAlbumFilter = null;
+      refreshStudyOrderIfNeeded(true);
+      renderStudyScope();
+      renderStudy();
+    });
   }
 }
 
 function renderStudy(){
-  emptyStudy.style.display = cards.length ? 'none' : 'block';
-  document.querySelector('.study-wrap').style.display = cards.length ? 'flex' : 'none';
-  if(!cards.length) return;
+  renderStudyScope();
+  const pool = getStudyPool();
+  emptyStudy.style.display = pool.length ? 'none' : 'block';
+  document.querySelector('.study-wrap').style.display = pool.length ? 'flex' : 'none';
+  if(!pool.length) return;
   if(studyIndex >= studyOrder.length) studyIndex = 0;
-  const c = cards.find(x=>x.id===studyOrder[studyIndex]) || cards[0];
+  const c = cards.find(x=>x.id===studyOrder[studyIndex]) || pool[0];
   flipped = false;
   card3d.classList.remove('flipped');
   counterEl.textContent = `${studyIndex+1} / ${studyOrder.length}`;
@@ -1055,7 +1298,8 @@ function renderStudy(){
     studyImgFront.style.display = 'none';
   }
 }
-card3d.addEventListener('click', ()=>{
+card3d.addEventListener('click', (e)=>{
+  if(e.target.closest('.study-speak-btn')) return;
   flipped = !flipped;
   card3d.classList.toggle('flipped', flipped);
 });
@@ -1070,13 +1314,115 @@ document.getElementById('nextBtn').addEventListener('click', ()=>{
   renderStudy();
 });
 document.getElementById('shuffleBtn').addEventListener('click', ()=>{
-  for(let i=studyOrder.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [studyOrder[i], studyOrder[j]] = [studyOrder[j], studyOrder[i]];
-  }
+  studyOrder = buildWeightedIds();
   studyIndex = 0;
   renderStudy();
   showToast('已隨機排序');
+});
+function markCurrentWord(known){
+  if(!studyOrder.length) return;
+  const id = studyOrder[studyIndex];
+  const c = cards.find(x=>x.id===id);
+  if(c){
+    c.knownStreak = known ? Math.min((c.knownStreak||0)+1, 3) : 0;
+    saveCards(cards);
+  }
+  studyIndex = (studyIndex + 1) % studyOrder.length;
+  if(studyIndex === 0){
+    studyOrder = buildWeightedIds();
+  }
+  renderStudy();
+  showToast(known ? '已標記為認識 ✅' : '會更常出現複習 😕');
+}
+document.getElementById('knowBtn').addEventListener('click', (e)=>{
+  triggerButtonFeedback(e.currentTarget, true);
+  markCurrentWord(true);
+});
+document.getElementById('dontKnowBtn').addEventListener('click', (e)=>{
+  triggerButtonFeedback(e.currentTarget, false);
+  markCurrentWord(false);
+});
+
+/* ---- Quiz ---- */
+let quizScore = { correct: 0, total: 0 };
+let quizAnswer = null;
+const quizQuestionEl = document.getElementById('quizQuestion');
+const quizChoicesEl = document.getElementById('quizChoices');
+const quizScoreLabel = document.getElementById('quizScoreLabel');
+const emptyQuiz = document.getElementById('emptyQuiz');
+
+function renderQuizScope(){
+  const el = document.getElementById('quizScope');
+  if(!el) return;
+  el.innerHTML = studyAlbumFilter
+    ? `<span>${escapeHtml(studyScopeLabel().replace('背誦','測驗'))}</span><button class="clear-scope" id="clearQuizScopeBtn">清除篩選</button>`
+    : '';
+  const clearBtn = document.getElementById('clearQuizScopeBtn');
+  if(clearBtn){
+    clearBtn.addEventListener('click', ()=>{
+      studyAlbumFilter = null;
+      startQuiz();
+    });
+  }
+}
+
+function startQuiz(){
+  quizScore = { correct: 0, total: 0 };
+  quizScoreLabel.textContent = '答對 0 / 0';
+  renderQuizScope();
+  pickQuizQuestion();
+}
+
+function pickQuizQuestion(){
+  const pool = getStudyPool();
+  if(pool.length < 4){
+    emptyQuiz.style.display = 'block';
+    quizQuestionEl.style.display = 'none';
+    quizChoicesEl.innerHTML = '';
+    return;
+  }
+  emptyQuiz.style.display = 'none';
+  quizQuestionEl.style.display = 'block';
+  const correct = pool[Math.floor(Math.random() * pool.length)];
+  quizAnswer = correct;
+  const others = shuffleArray(pool.filter(c=>c.id !== correct.id)).slice(0, 3);
+  const choices = shuffleArray([correct, ...others]);
+  quizQuestionEl.textContent = correct.back || '（沒有翻譯內容）';
+  quizChoicesEl.innerHTML = '';
+  choices.forEach(c=>{
+    const btn = document.createElement('button');
+    btn.className = 'quiz-choice-btn';
+    btn.textContent = splitFrontBase(c.front).main;
+    btn.addEventListener('click', ()=>handleQuizAnswer(c.id, btn));
+    quizChoicesEl.appendChild(btn);
+  });
+}
+
+function handleQuizAnswer(chosenId, btnEl){
+  const buttons = Array.from(quizChoicesEl.querySelectorAll('.quiz-choice-btn'));
+  buttons.forEach(b=>b.disabled = true);
+  quizScore.total++;
+  const correctMain = splitFrontBase(quizAnswer.front).main;
+  const isCorrect = chosenId === quizAnswer.id;
+  if(isCorrect){
+    quizScore.correct++;
+    btnEl.classList.add('correct');
+  }else{
+    btnEl.classList.add('wrong');
+    buttons.forEach(b=>{ if(b.textContent === correctMain) b.classList.add('correct'); });
+  }
+  triggerButtonFeedback(btnEl, isCorrect);
+  quizScoreLabel.textContent = `答對 ${quizScore.correct} / ${quizScore.total}`;
+  setTimeout(pickQuizQuestion, 900);
+}
+
+document.getElementById('studyThisAlbumBtn').addEventListener('click', ()=>{
+  studyAlbumFilter = currentAlbumId;
+  tabStudy.click();
+});
+document.getElementById('quizThisAlbumBtn').addEventListener('click', ()=>{
+  studyAlbumFilter = currentAlbumId;
+  tabQuiz.click();
 });
 
 /* ---- Lyrics import ---- */
@@ -1261,7 +1607,11 @@ async function translateBatchWithGeminiProxy(words, lang){
     const text = await res.text();
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    return (parsed && typeof parsed === 'object' && !parsed.error) ? parsed : null;
+    if(!parsed || typeof parsed !== 'object' || parsed.error) return null;
+    if(Object.keys(parsed).length === 0) return null;
+    const gotAny = words.some(w => parsed[w] && (typeof parsed[w] === 'object' ? (parsed[w].translation) : parsed[w]));
+    if(!gotAny) return null;
+    return parsed;
   }catch(e){ return null; }
 }
 
@@ -1399,31 +1749,7 @@ function chunkArray(arr, size){
   return chunks;
 }
 
-async function translateWordChunk(words, lang, onProgress){
-  const geminiResult = await translateBatchWithGeminiProxy(words, lang);
-  if(geminiResult){
-    words.forEach(w=>{
-      const entry = geminiResult[w];
-      if(entry && typeof entry === 'object'){
-        onProgress(w, entry.translation || '', entry.base || w, entry.reading || '');
-      }else{
-        onProgress(w, entry || '', w, '');
-      }
-    });
-    return;
-  }
-  const claudeResult = await translateBatchWithClaude(words, lang);
-  if(claudeResult){
-    words.forEach(w=>{
-      const entry = claudeResult[w];
-      if(entry && typeof entry === 'object'){
-        onProgress(w, entry.translation || '', entry.base || w, entry.reading || '');
-      }else{
-        onProgress(w, entry || '', w, '');
-      }
-    });
-    return;
-  }
+async function translateWordsWithFreeFallback(words, lang, onProgress){
   for(const w of words){
     let t = await translateViaGoogle(w, lang);
     if(!t) t = await translateViaMyMemory(w, lang);
@@ -1433,11 +1759,46 @@ async function translateWordChunk(words, lang, onProgress){
   }
 }
 
+async function translateWordChunk(words, lang, onProgress){
+  const geminiResult = await translateBatchWithGeminiProxy(words, lang);
+  if(geminiResult){
+    const missing = [];
+    words.forEach(w=>{
+      const entry = geminiResult[w];
+      const translation = entry && typeof entry === 'object' ? entry.translation : entry;
+      if(translation){
+        onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
+      }else{
+        missing.push(w);
+      }
+    });
+    if(missing.length) await translateWordsWithFreeFallback(missing, lang, onProgress);
+    return;
+  }
+  const claudeResult = await translateBatchWithClaude(words, lang);
+  if(claudeResult){
+    const missing = [];
+    words.forEach(w=>{
+      const entry = claudeResult[w];
+      const translation = entry && typeof entry === 'object' ? entry.translation : entry;
+      if(translation){
+        onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
+      }else{
+        missing.push(w);
+      }
+    });
+    if(missing.length) await translateWordsWithFreeFallback(missing, lang, onProgress);
+    return;
+  }
+  await translateWordsWithFreeFallback(words, lang, onProgress);
+}
+
 async function translateAllWords(words, lang, onProgress){
   const CHUNK_SIZE = 25;
   const chunks = chunkArray(words, CHUNK_SIZE);
-  for(const chunk of chunks){
-    await translateWordChunk(chunk, lang, onProgress);
+  for(let i=0;i<chunks.length;i++){
+    await translateWordChunk(chunks[i], lang, onProgress);
+    if(i < chunks.length - 1) await new Promise(r=>setTimeout(r, 1200));
   }
 }
 
