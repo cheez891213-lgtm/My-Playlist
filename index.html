@@ -1259,6 +1259,89 @@ async function translateViaMyMemory(word, lang){
   }catch(e){ return ''; }
 }
 
+// Offline best-effort lemmatizer (no API needed) - used when the Claude API
+// call isn't available, e.g. the site is hosted outside claude.ai. This uses
+// rule-based heuristics rather than true language understanding, so it won't
+// be as accurate as the AI version, but it works entirely in the browser.
+const EN_IRREGULARS = {
+  went:'go', gone:'go', ate:'eat', eaten:'eat', ran:'run', was:'be', were:'be',
+  been:'be', am:'be', is:'be', are:'be', had:'have', has:'have', did:'do',
+  done:'do', said:'say', made:'make', took:'take', taken:'take', saw:'see',
+  seen:'see', came:'come', got:'get', gotten:'get', knew:'know', known:'know',
+  thought:'think', bought:'buy', brought:'bring', caught:'catch', taught:'teach',
+  felt:'feel', kept:'keep', left:'leave', lost:'lose', found:'find', held:'hold',
+  met:'meet', paid:'pay', sold:'sell', sent:'send', spent:'spend', stood:'stand',
+  told:'tell', understood:'understand', woke:'wake', wrote:'write', written:'write',
+  broke:'break', broken:'break', chose:'choose', chosen:'choose', drove:'drive',
+  driven:'drive', fell:'fall', fallen:'fall', flew:'fly', flown:'fly', froze:'freeze',
+  frozen:'freeze', grew:'grow', grown:'grow', hid:'hide', hidden:'hide', rode:'ride',
+  ridden:'ride', rose:'rise', risen:'rise', sang:'sing', sung:'sing', spoke:'speak',
+  spoken:'speak', stole:'steal', stolen:'steal', swam:'swim', swum:'swim', threw:'throw',
+  thrown:'throw', better:'good', best:'good', worse:'bad', worst:'bad', men:'man',
+  women:'woman', children:'child', feet:'foot', teeth:'tooth', mice:'mouse'
+};
+function lemmatizeEn(word){
+  const w = word.toLowerCase();
+  if(EN_IRREGULARS[w]) return EN_IRREGULARS[w];
+  if(w.length > 4 && w.endsWith('ing')){
+    let stem = w.slice(0, -3);
+    if(/([bcdfghjklmnpqrstvwxyz])\1$/.test(stem)) stem = stem.slice(0, -1);
+    else if(/^.*[^aeiou][aeiou][bcdfghjklmnpqrstvwxz]$/.test(stem)) stem += 'e';
+    return stem;
+  }
+  if(w.length > 4 && w.endsWith('ied')) return w.slice(0, -3) + 'y';
+  if(w.length > 4 && w.endsWith('ed')){
+    let stem = w.slice(0, -2);
+    if(/([bcdfghjklmnpqrstvwxyz])\1$/.test(stem)) stem = stem.slice(0, -1);
+    else if(/^.*[^aeiou][aeiou][bcdfghjklmnpqrstvwxz]$/.test(stem)) stem += 'e';
+    return stem;
+  }
+  if(w.length > 3 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if(w.length > 4 && /(s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2);
+  if(w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+function lemmatizeJa(word){
+  const w = word;
+  if(w.endsWith('ました')) return w.slice(0, -3) + 'る';
+  if(w.endsWith('ません')) return w.slice(0, -3) + 'る';
+  if(w.endsWith('ます')) return w.slice(0, -2) + 'る';
+  if(w.endsWith('でした')) return w.slice(0, -3) + 'だ';
+  if(w.endsWith('かった') && w.length > 3) return w.slice(0, -3) + 'い';
+  if(w.endsWith('くない') && w.length > 3) return w.slice(0, -3) + 'い';
+  if(w.endsWith('たい') && w.length > 2) return w.slice(0, -2) + 'る';
+  const godanEnd = { 'った':'う', 'いた':'く', 'いだ':'ぐ', 'した':'す', 'んだ':'む' };
+  for(const suf in godanEnd){
+    if(w.endsWith(suf) && w.length > suf.length) return w.slice(0, -suf.length) + godanEnd[suf];
+  }
+  if(w.endsWith('て') && w.length > 1) return w.slice(0, -1) + 'る';
+  if(w.endsWith('た') && w.length > 1) return w.slice(0, -1) + 'る';
+  if(w.endsWith('ない') && w.length > 2) return w.slice(0, -2) + 'る';
+  return w;
+}
+const KO_ENDING_MAP = [
+  ['하겠습니다','하다'], ['했습니다','하다'], ['합니다','하다'], ['했어요','하다'], ['해요','하다'], ['했다','하다'],
+  ['이었습니다','이다'], ['였습니다','이다'], ['이에요','이다'], ['예요','이다'], ['이었다','이다'], ['였다','이다'],
+  ['았습니다','다'], ['었습니다','다'], ['았어요','다'], ['었어요','다'], ['았다','다'], ['었다','다'],
+  ['ㅂ니다','다'], ['습니다','다'], ['아요','다'], ['어요','다']
+];
+function lemmatizeKo(word){
+  const w = word;
+  for(const [suf, repl] of KO_ENDING_MAP){
+    if(w.endsWith(suf) && w.length > suf.length) return w.slice(0, -suf.length) + repl;
+  }
+  if(w.endsWith('다')) return w;
+  return w + '다';
+}
+function localLemmatize(word, lang){
+  try{
+    if(lang === 'en') return lemmatizeEn(word);
+    if(lang === 'ja') return lemmatizeJa(word);
+    if(lang === 'ko') return lemmatizeKo(word);
+  }catch(e){ /* ignore */ }
+  return word;
+}
+
 async function translateAllWords(words, lang, onProgress){
   const claudeResult = await translateBatchWithClaude(words, lang);
   if(claudeResult){
@@ -1275,10 +1358,12 @@ async function translateAllWords(words, lang, onProgress){
   for(const w of words){
     let t = await translateViaGoogle(w, lang);
     if(!t) t = await translateViaMyMemory(w, lang);
-    onProgress(w, t, w);
+    const base = localLemmatize(w, lang);
+    onProgress(w, t, base);
     await new Promise(r=>setTimeout(r, 200));
   }
 }
+
 
 openLyricsBtn.addEventListener('click', ()=>{
   lyricsForm.style.display = 'block';
