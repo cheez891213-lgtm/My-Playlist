@@ -800,6 +800,12 @@ document.getElementById('toggleDeleteModeBtn').addEventListener('click', ()=>{
 
 const HEART_SVG = '<svg class="cover-fallback" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.53L12 21.35z"/></svg>';
 
+function buildWordHint(word, base, reading){
+  const parts = [];
+  if(base && base !== word) parts.push(base);
+  if(reading && reading !== base && reading !== word) parts.push(reading);
+  return parts.join('・');
+}
 function splitFrontBase(front){
   const m = front.match(/^(.*?)(（[^）]*）)\s*$/);
   if(m) return { main: m[1], hint: m[2] };
@@ -1176,9 +1182,30 @@ function tokenizeLyrics(text, lang){
     ko: /^[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]+$/
   };
   const KO_PARTICLE_SUFFIXES = ['에서','으로','부터','까지','이나','라도','이라도','하고','이랑','한테','에게','처럼','만큼','밖에','조차','마저','따라','대로','에게','와','과','도','만','께','랑','로','를','을','는','은','이','가','의'].sort((a,b)=>b.length-a.length);
+  const JA_CONTINUATION = new Set(['る','た','て','だ','です','ます','ません','ました','ない','たい','れる','られる','せる','させる','そう','そうだ','でした','ちゃ','じゃ','ちゃう','じゃう','とく','どく','なさい','べき','だろう','でしょう','ば','ので','のに','けど','たり']);
   if(typeof Intl !== 'undefined' && Intl.Segmenter){
     try{
       const seg = new Intl.Segmenter(lang, { granularity: 'word' });
+      if(lang === 'ja'){
+        const raw = [];
+        for(const part of seg.segment(text)){
+          if(!part.isWordLike) continue;
+          const clean = part.segment.trim();
+          if(clean) raw.push(clean);
+        }
+        let i = 0;
+        while(i < raw.length){
+          let cur = raw[i];
+          let j = i + 1;
+          while(j < raw.length && JA_CONTINUATION.has(raw[j]) && SCRIPT_TEST.ja.test(cur)){
+            cur += raw[j];
+            j++;
+          }
+          if(!/^[0-9]+$/.test(cur) && SCRIPT_TEST.ja.test(cur)) pushWord(cur);
+          i = j;
+        }
+        return result;
+      }
       for(const part of seg.segment(text)){
         if(!part.isWordLike) continue;
         let clean = part.segment.trim();
@@ -1240,7 +1267,7 @@ async function translateBatchWithGeminiProxy(words, lang){
 
 async function translateBatchWithClaude(words, lang){
   const langName = LANG_NAMES[lang] || lang;
-  const prompt = `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, and (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word). Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
+  const prompt = `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word), and (3) "reading" - ONLY if the language is Japanese and the base form contains kanji, give its hiragana reading; otherwise leave "reading" as an empty string. Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"...","reading":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1378,9 +1405,9 @@ async function translateWordChunk(words, lang, onProgress){
     words.forEach(w=>{
       const entry = geminiResult[w];
       if(entry && typeof entry === 'object'){
-        onProgress(w, entry.translation || '', entry.base || w);
+        onProgress(w, entry.translation || '', entry.base || w, entry.reading || '');
       }else{
-        onProgress(w, entry || '', w);
+        onProgress(w, entry || '', w, '');
       }
     });
     return;
@@ -1390,9 +1417,9 @@ async function translateWordChunk(words, lang, onProgress){
     words.forEach(w=>{
       const entry = claudeResult[w];
       if(entry && typeof entry === 'object'){
-        onProgress(w, entry.translation || '', entry.base || w);
+        onProgress(w, entry.translation || '', entry.base || w, entry.reading || '');
       }else{
-        onProgress(w, entry || '', w);
+        onProgress(w, entry || '', w, '');
       }
     });
     return;
@@ -1401,7 +1428,7 @@ async function translateWordChunk(words, lang, onProgress){
     let t = await translateViaGoogle(w, lang);
     if(!t) t = await translateViaMyMemory(w, lang);
     const base = localLemmatize(w, lang);
-    onProgress(w, t, base);
+    onProgress(w, t, base, '');
     await new Promise(r=>setTimeout(r, 200));
   }
 }
@@ -1448,7 +1475,7 @@ document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>
   const words = tokenizeLyrics(text, lang);
   if(!words.length){ showToast('沒有找到可用的新單字'); return; }
   lyricsList.innerHTML = '';
-  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w }));
+  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w, reading:'' }));
   lyricsStatus.style.display = 'block';
   lyricsStatus.textContent = `找到 ${words.length} 個單字，翻譯中… 0/${words.length}`;
   words.forEach(w=>{
@@ -1458,15 +1485,17 @@ document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>
     lyricsList.appendChild(row);
   });
   let done = 0;
-  await translateAllWords(words, lang, (word, translation, base)=>{
+  await translateAllWords(words, lang, (word, translation, base, reading)=>{
     const item = lyricsCandidates.find(c=>c.word===word);
     if(item){
       item.translation = translation || '（翻譯失敗，可手動編輯）';
       item.base = base || word;
+      item.reading = reading || '';
     }
     const lwEl = document.querySelector(`.lyrics-item input[data-word="${word}"] + .lw`);
-    if(lwEl && item && item.base && item.base !== word){
-      lwEl.innerHTML = `${escapeHtml(word)}<span class="front-hint">（${escapeHtml(item.base)}）</span>`;
+    if(lwEl && item){
+      const hint = buildWordHint(word, item.base, item.reading);
+      lwEl.innerHTML = hint ? `${escapeHtml(word)}<span class="front-hint">（${escapeHtml(hint)}）</span>` : escapeHtml(word);
     }
     const el = document.getElementById(`lt-${word}`);
     if(el){ el.textContent = item ? item.translation : ''; el.classList.remove('pending'); }
@@ -1494,7 +1523,8 @@ document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=
   checked.forEach(w=>{
     const c = lyricsCandidates.find(x=>x.word===w);
     if(!c) return;
-    const front = (c.base && c.base !== c.word) ? `${c.word}（${c.base}）` : c.word;
+    const hint = buildWordHint(c.word, c.base, c.reading);
+    const front = hint ? `${c.word}（${hint}）` : c.word;
     cards.push({ id: uid(), front, back: c.translation, image: null, albumId: newAlbum.id, createdAt: Date.now() });
     added++;
   });
