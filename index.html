@@ -2114,7 +2114,11 @@ async function submitSentenceAnswer(){
   sentenceFeedbackEl.className = 'fill-feedback';
 
   const prompt = `你是一位嚴謹但親切的韓文老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成韓文的答案："${raw}"。請判斷這個韓文翻譯是否正確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的韓文參考翻譯"}。`;
-  const result = await callAI(prompt);
+  let result = await callAI(prompt);
+  if(!result || typeof result.correct !== 'boolean'){
+    await new Promise(r=>setTimeout(r, 700));
+    result = await callAI(prompt);
+  }
   if(!result || typeof result.correct !== 'boolean'){
     sentenceFeedbackEl.textContent = 'AI 批改失敗，請重新送出一次。';
     sentenceFeedbackEl.className = 'fill-feedback wrong';
@@ -2316,13 +2320,15 @@ const LANG_NAMES = { en:'English', ja:'Japanese', ko:'Korean' };
 const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 
 // Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
+// Explicitly requests the gemini-2.5-flash model (the Worker should honor this
+// field if it forwards it to the Gemini API; ignored otherwise).
 async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   try{
     const res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
     });
     if(!res.ok) return null;
     const text = await res.text();
