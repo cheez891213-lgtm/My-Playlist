@@ -526,14 +526,6 @@
     text-align:center;font-family:'Noto Sans TC','Noto Sans KR',sans-serif;
     font-size:13px;color:var(--ink-soft);margin-bottom:18px;
   }
-  .sentence-quiz-words{
-    display:flex;flex-wrap:wrap;justify-content:center;gap:6px;
-    margin-bottom:14px;
-  }
-  .sentence-quiz-word-chip{
-    font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--green-dark);
-    background:var(--green-tint);border-radius:999px;padding:4px 10px;
-  }
   .sentence-answer-input{
     width:100%;max-width:480px;display:block;margin:0 auto 12px;
     font-family:'Noto Sans TC','Noto Sans KR',sans-serif;font-size:15px;
@@ -826,7 +818,6 @@
     </div>
 
     <div id="quizSentenceMode" style="display:none;">
-      <div class="sentence-quiz-words" id="sentenceQuizWords"></div>
       <div class="fill-sentence" id="sentenceQuestion">AI 出題中…</div>
       <textarea id="sentenceAnswerInput" class="sentence-answer-input" rows="3" placeholder="請輸入這句話的韓文翻譯…" disabled></textarea>
       <div class="sentence-quiz-actions">
@@ -1821,7 +1812,6 @@ let fillSurfaceAnswer = '';
 let fillNeedsRetry = false;
 let fillLocked = false;
 
-const sentenceQuizWordsEl = document.getElementById('sentenceQuizWords');
 const sentenceQuestionEl = document.getElementById('sentenceQuestion');
 const sentenceAnswerInputEl = document.getElementById('sentenceAnswerInput');
 const sentenceSubmitBtnEl = document.getElementById('sentenceSubmitBtn');
@@ -2048,17 +2038,26 @@ fillInputEl.addEventListener('keydown', (e)=>{
 });
 
 /* ---- Quiz: AI sentence-translation mode ----
-   Uses the Chinese meanings of words in the current album/scope, asks the AI
-   to write a natural everyday Chinese sentence using them, has the user
-   translate the whole sentence into Korean, then asks the AI to grade it. */
+   Uses the Chinese meaning of one random word in the current album/scope,
+   asks the AI to write a natural everyday Chinese sentence using it, has the
+   user translate the whole sentence into Korean, then asks the AI to grade it. */
 function getSentenceQuizPool(){
   return getStudyPool().filter(c => c.back && c.back.trim());
 }
-function renderSentenceQuizWordChips(chosenCards){
-  sentenceQuizWordsEl.innerHTML = chosenCards.map(c=>{
-    const w = splitFrontBase(c.front).main;
-    return `<span class="sentence-quiz-word-chip">${escapeHtml(w)}（${escapeHtml(c.back)}）</span>`;
-  }).join('');
+// Generic Chinese sentence templates used as an offline fallback if the AI
+// call fails (e.g. no network, proxy down), so the quiz can still proceed
+// instead of just showing an error.
+const SENTENCE_FALLBACK_TEMPLATES = [
+  '我今天突然想到「%W%」這件事。',
+  '你平常也會用到「%W%」嗎？',
+  '這個週末的計畫跟「%W%」有點關係。',
+  '我朋友最近常常提到「%W%」。',
+  '可以跟我介紹一下「%W%」嗎？',
+  '我覺得「%W%」對我來說很重要。'
+];
+function buildFallbackSentence(meaning){
+  const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
+  return t.replace('%W%', meaning);
 }
 async function pickSentenceQuestion(){
   const requestId = ++sentenceQuizRequestId;
@@ -2070,38 +2069,36 @@ async function pickSentenceQuestion(){
   sentenceAnswerInputEl.value = '';
   if(pool.length < 1){
     emptySentenceQuiz.style.display = 'block';
-    sentenceQuizWordsEl.style.display = 'none';
     sentenceQuestionEl.style.display = 'none';
     sentenceAnswerInputEl.style.display = 'none';
     document.querySelector('#quizSentenceMode .sentence-quiz-actions').style.display = 'none';
     return;
   }
   emptySentenceQuiz.style.display = 'none';
-  sentenceQuizWordsEl.style.display = 'flex';
   sentenceQuestionEl.style.display = 'block';
   sentenceAnswerInputEl.style.display = 'block';
   document.querySelector('#quizSentenceMode .sentence-quiz-actions').style.display = 'flex';
 
-  const count = Math.min(pool.length, 2 + Math.floor(Math.random()*2));
-  const chosen = shuffleArray(pool.slice()).slice(0, count);
-  renderSentenceQuizWordChips(chosen);
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
   sentenceQuestionEl.textContent = 'AI 出題中…';
   sentenceAnswerInputEl.disabled = true;
   sentenceSubmitBtnEl.disabled = true;
   sentenceQuizQuestionText = '';
 
-  const meanings = chosen.map(c=>c.back);
-  const prompt = `你是一位中文教材出題老師。請使用以下詞彙的中文意思：${JSON.stringify(meanings)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，不用每個詞彙都硬塞進去，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
-  const result = await callAI(prompt);
-  if(requestId !== sentenceQuizRequestId) return; // stale response, a newer question was requested
+  const meaning = chosen.back;
+  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
+
+  // Try twice before giving up, then fall back to a local template so the
+  // quiz can always proceed even if the AI proxy is temporarily unreachable.
+  let result = await callAI(prompt);
   if(!result || !result.sentence){
-    sentenceQuestionEl.textContent = 'AI 暫時無法出題，請按「下一題」重試。';
-    sentenceNextBtnEl.style.display = 'inline-block';
-    showToast('AI 暫時無法使用');
-    return;
+    await new Promise(r=>setTimeout(r, 700));
+    result = await callAI(prompt);
   }
-  sentenceQuizQuestionText = result.sentence;
-  sentenceQuestionEl.textContent = result.sentence;
+  if(requestId !== sentenceQuizRequestId) return; // stale response, a newer question was requested
+
+  sentenceQuizQuestionText = (result && result.sentence) ? result.sentence : buildFallbackSentence(meaning);
+  sentenceQuestionEl.textContent = sentenceQuizQuestionText;
   sentenceAnswerInputEl.disabled = false;
   sentenceSubmitBtnEl.disabled = false;
   sentenceAnswerInputEl.focus();
