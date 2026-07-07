@@ -618,6 +618,7 @@
     </div>
     <div class="header-right">
       <div class="points-badge" id="pointsBadge" style="display:none;"><span class="heart"><svg class="heart-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3s-7.6-4.6-10-9.4C.5 7.7 2 4.3 5.4 3.5c2-.5 4.1.3 5.3 2 1.2-1.7 3.3-2.5 5.3-2 3.4.8 4.9 4.2 3.4 7.4-2.4 4.8-10 9.4-10 9.4z"/></svg></span><span id="pointsValue">0</span></div>
+      <button id="installAppBtn" class="add-btn secondary" style="display:none;padding:6px 12px;font-size:11px;">安裝到主畫面</button>
       <div class="tabs">
         <button id="tabManage" class="active">專輯</button>
         <button id="tabStudy">背誦</button>
@@ -2796,6 +2797,28 @@ document.addEventListener('click', (e)=>{
 });
 
 /* ---- PWA install support (installable without an extra file) ---- */
+let deferredInstallPrompt = null;
+const installAppBtn = document.getElementById('installAppBtn');
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if(installAppBtn) installAppBtn.style.display = 'inline-flex';
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredInstallPrompt = null;
+  if(installAppBtn) installAppBtn.style.display = 'none';
+  showToast('已安裝到主畫面 🎉');
+});
+if(installAppBtn){
+  installAppBtn.addEventListener('click', async ()=>{
+    if(!deferredInstallPrompt) return;
+    installAppBtn.style.display = 'none';
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  });
+}
+
 if('serviceWorker' in navigator){
   try{
     const swCode = `self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('fetch',e=>{});`;
