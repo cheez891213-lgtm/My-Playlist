@@ -597,9 +597,10 @@
   @media(max-width:480px){
     .logo-title{height:80px;max-width:60vw;object-fit:contain;}
     .stage {
-    height: 260px !important;
-    width: calc(100% - 8px) !important; /* 強制縮小寬度 8px */
-    overflow: hidden !important;        /* 強制把超出的右邊切掉 */
+    height: 260px;
+    /* 把左右的 178px 改成 170px */
+    padding: 150px 170px !important; 
+    overflow: hidden !important;
     }
   }
 </style>
