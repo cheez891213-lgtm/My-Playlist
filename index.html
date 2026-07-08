@@ -658,8 +658,8 @@
       <div class="form-row">
         <label>歌詞語言</label>
         <select id="lyricsLangSelect">
-          <option value="ja">日文</option>
           <option value="ko">韓文</option>
+          <option value="ja">日文</option>
         </select>
       </div>
       <div class="form-actions">
@@ -2048,14 +2048,7 @@ function getSentenceQuizPool(){
 // Generic Chinese sentence templates used as an offline fallback if the AI
 // call fails (e.g. no network, proxy down), so the quiz can still proceed
 // instead of just showing an error.
-const SENTENCE_FALLBACK_TEMPLATES = [
-  '我今天突然想到「%W%」這件事。',
-  '你平常也會用到「%W%」嗎？',
-  '這個週末的計畫跟「%W%」有點關係。',
-  '我朋友最近常常提到「%W%」。',
-  '可以跟我介紹一下「%W%」嗎？',
-  '我覺得「%W%」對我來說很重要。'
-];
+
 function buildFallbackSentence(meaning){
   const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
   return t.replace('%W%', meaning);
