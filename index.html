@@ -374,6 +374,9 @@
   .btn.primary:hover{background:var(--green-dark);}
   .btn:hover{background:var(--paper-dark);}
   .btn.text{border:none;background:none;color:var(--ink-soft);}
+  .lyrics-tabs{display:flex;gap:8px;}
+  .tab-btn{padding:8px 18px;border:1px solid var(--line,#ddd);border-radius:8px;background:none;color:var(--ink-soft);cursor:pointer;font-size:14px;font-family:inherit;}
+  .tab-btn.active{background:var(--green);color:var(--on-accent);border-color:var(--green);font-weight:600;}
   .song-candidate-list{display:flex;flex-direction:column;gap:6px;margin:6px 0 14px;}
   .song-candidate-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:10px;cursor:pointer;background:var(--card-bg,#fff);}
   .song-candidate-item:hover{border-color:var(--green);}
@@ -639,6 +642,12 @@
   <div id="panelManage" class="panel active">
 
     <div class="form-card" id="lyricsForm" style="display:none;">
+      <div class="form-row">
+        <div class="lyrics-tabs">
+          <button type="button" class="tab-btn active" id="autoTabBtn">自動</button>
+          <button type="button" class="tab-btn" id="manualTabBtn">手動</button>
+        </div>
+      </div>
       <div id="albumMetaFields">
         <div class="form-row">
           <label>專輯名稱</label>
@@ -649,7 +658,7 @@
           <input type="text" id="albumArtistInput" placeholder="例如：IVE">
         </div>
         <div class="form-row">
-          <label>封面圖（選填）</label>
+          <label>封面圖（選填，自動帶入後仍可自行更換）</label>
           <div class="img-row">
             <div class="img-preview" id="albumCoverPreview">無圖片</div>
             <label class="file-label" for="albumCoverInput">選擇圖片</label>
@@ -658,27 +667,32 @@
           </div>
         </div>
       </div>
-      <div class="form-row">
-        <label>歌曲名稱</label>
-        <input type="text" id="songTitleInput" placeholder="輸入歌名，自動搜尋…" autocomplete="off">
+      <div id="autoTabContent">
+        <div class="song-candidate-list" id="songCandidateList"></div>
+        <div class="form-actions">
+          <button type="button" class="btn primary" id="searchLyricsBtn">搜尋歌詞並分析</button>
+        </div>
+        <div class="lyrics-status" id="songSearchStatus" style="display:none;"></div>
       </div>
-      <div class="form-row">
-        <label>歌手（選填，可縮小搜尋範圍）</label>
-        <input type="text" id="songArtistInput" placeholder="例如：IVE" autocomplete="off">
-      </div>
-      <div class="song-candidate-list" id="songCandidateList"></div>
-      <div class="form-row">
-        <label>歌詞語言</label>
-        <select id="lyricsLangSelect">
-          <option value="ja">日文</option>
-          <option value="ko">韓文</option>
-        </select>
+      <div id="manualTabContent" style="display:none;">
+        <div class="form-row">
+          <label>貼上歌詞</label>
+          <textarea id="lyricsInput" style="min-height:120px;" placeholder="在這裡貼上一整段歌詞…"></textarea>
+        </div>
+        <div class="form-row">
+          <label>歌詞語言</label>
+          <select id="lyricsLangSelect">
+            <option value="ja">日文</option>
+            <option value="ko">韓文</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn primary" id="analyzeLyricsBtn">分析歌詞並翻譯</button>
+        </div>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn primary" id="searchLyricsBtn">搜尋歌詞並分析</button>
         <button class="btn text" id="cancelLyricsBtn">取消</button>
       </div>
-      <div class="lyrics-status" id="songSearchStatus" style="display:none;"></div>
       <div class="lyrics-status" id="lyricsStatus" style="display:none;"></div>
       <div class="form-actions" id="lyricsSelectRow" style="display:none;">
         <button class="btn text" id="selectAllBtn">全選</button>
@@ -2220,15 +2234,39 @@ editAlbumCoverInput.addEventListener('change', async ()=>{
 });
 
 const lyricsStatus = document.getElementById('lyricsStatus');
-const songTitleInput = document.getElementById('songTitleInput');
-const songArtistInput = document.getElementById('songArtistInput');
+const lyricsInput = document.getElementById('lyricsInput');
+const autoTabBtn = document.getElementById('autoTabBtn');
+const manualTabBtn = document.getElementById('manualTabBtn');
+const autoTabContent = document.getElementById('autoTabContent');
+const manualTabContent = document.getElementById('manualTabContent');
 const songSearchStatus = document.getElementById('songSearchStatus');
 const songCandidateList = document.getElementById('songCandidateList');
 
-// Currently selected song's metadata from iTunes (cover art + 30s official
-// preview clip URL). Used to auto-fill the album cover and, later, could
-// power a listening feature - iTunes never gives full song audio, only the
-// short official preview, so this stays within iTunes' own developer terms.
+let lyricsTabMode = 'auto';
+function setLyricsTab(tab){
+  lyricsTabMode = tab;
+  const isManual = tab === 'manual';
+  manualTabBtn.classList.toggle('active', isManual);
+  autoTabBtn.classList.toggle('active', !isManual);
+  manualTabContent.style.display = isManual ? 'block' : 'none';
+  autoTabContent.style.display = isManual ? 'none' : 'block';
+}
+autoTabBtn.addEventListener('click', ()=> setLyricsTab('auto'));
+manualTabBtn.addEventListener('click', ()=> setLyricsTab('manual'));
+setLyricsTab('auto');
+
+// Simple heuristic to pick a tokenizer language for the "自動" tab, which has
+// no visible language selector (that field only shows on the "手動" tab).
+// Hangul present -> Korean, otherwise default to Japanese.
+function detectLangFromText(text){
+  return /[\uAC00-\uD7A3]/.test(text) ? 'ko' : 'ja';
+}
+
+// Currently selected song's metadata from iTunes (exact title/artist for the
+// lyrics lookup, cover art, and 30s official preview clip URL). Used to
+// auto-fill the album cover and, later, could power a listening feature -
+// iTunes never gives full song audio, only the short official preview, so
+// this stays within iTunes' own developer terms.
 let selectedSongMeta = null;
 
 // Free, keyless song lookup via Apple's public iTunes Search API. No API key
@@ -2253,9 +2291,12 @@ function renderSongCandidates(results){
     const cover = (r.artworkUrl100 || '').replace('100x100bb', '200x200bb');
     item.innerHTML = `${cover ? `<img src="${cover}" alt="">` : ''}<div><div class="sc-title">${escapeHtml(r.trackName || '')}</div><div class="sc-artist">${escapeHtml(r.artistName || '')}${r.collectionName ? ' · ' + escapeHtml(r.collectionName) : ''}</div></div>`;
     item.addEventListener('click', ()=>{
-      songTitleInput.value = r.trackName || '';
-      songArtistInput.value = r.artistName || '';
+      // Fill in the shared 歌手 field only if the user hasn't already typed
+      // one; never overwrite the 專輯名稱 field the user chose themselves.
+      if(!albumArtistInput.value.trim()) albumArtistInput.value = r.artistName || '';
       selectedSongMeta = {
+        title: r.trackName || '',
+        artist: r.artistName || '',
         artworkUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
         previewUrl: r.previewUrl || null
       };
@@ -2271,16 +2312,17 @@ let itunesSearchTimer = null;
 function scheduleItunesSearch(){
   selectedSongMeta = null;
   clearTimeout(itunesSearchTimer);
-  const title = songTitleInput.value.trim();
+  if(lyricsTabMode !== 'auto'){ songCandidateList.innerHTML = ''; return; }
+  const title = albumNameInput.value.trim();
   if(!title){ songCandidateList.innerHTML = ''; return; }
   itunesSearchTimer = setTimeout(async ()=>{
-    const term = [title, songArtistInput.value.trim()].filter(Boolean).join(' ');
+    const term = [title, albumArtistInput.value.trim()].filter(Boolean).join(' ');
     const results = await searchITunes(term);
     renderSongCandidates(results);
   }, 400);
 }
-songTitleInput.addEventListener('input', scheduleItunesSearch);
-songArtistInput.addEventListener('input', scheduleItunesSearch);
+albumNameInput.addEventListener('input', scheduleItunesSearch);
+albumArtistInput.addEventListener('input', scheduleItunesSearch);
 
 // Free, keyless lyrics lookup (lyrics.ovh). Used only to fetch lyrics text
 // momentarily in-browser so it can be broken into vocabulary cards below -
@@ -2692,11 +2734,11 @@ function closeLyricsForm(){
   albumCoverPreview.style.backgroundImage = '';
   albumCoverPreview.textContent = '無圖片';
   clearAlbumCoverBtn.style.display = 'none';
-  songTitleInput.value = '';
-  songArtistInput.value = '';
   songCandidateList.innerHTML = '';
   selectedSongMeta = null;
   songSearchStatus.style.display = 'none';
+  lyricsInput.value = '';
+  setLyricsTab('auto');
   lyricsCandidates = [];
   lyricsTargetAlbumId = null;
 }
@@ -2809,13 +2851,21 @@ async function analyzeLyricsText(text, lang){
   return true;
 }
 
-document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
+document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>{
   const albumName = albumNameInput.value.trim();
-  const title = songTitleInput.value.trim();
-  const artist = songArtistInput.value.trim();
+  const text = lyricsInput.value.trim();
   const lang = lyricsLangSelect.value;
   if(!lyricsTargetAlbumId && !albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
-  if(!title){ showToast('請先輸入歌曲名稱'); songTitleInput.focus(); return; }
+  if(!text){ showToast('請先貼上歌詞'); return; }
+  await analyzeLyricsText(text, lang);
+});
+
+document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
+  const albumName = albumNameInput.value.trim();
+  const title = selectedSongMeta ? selectedSongMeta.title : albumName;
+  const artist = selectedSongMeta ? selectedSongMeta.artist : albumArtistInput.value.trim();
+  if(!lyricsTargetAlbumId && !albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
+  if(!title){ showToast('請先輸入專輯名稱（會用來搜尋歌詞）'); albumNameInput.focus(); return; }
 
   // If the user picked a result from the iTunes candidate list and hasn't
   // manually chosen their own cover image, use the official artwork.
@@ -2830,9 +2880,10 @@ document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
   songSearchStatus.textContent = '搜尋歌詞中…';
   const text = await fetchLyricsByTitle(title, artist);
   if(!text){
-    songSearchStatus.textContent = '找不到這首歌的歌詞，請確認歌名／歌手拼法是否正確（可從上方搜尋結果直接點選）。';
+    songSearchStatus.textContent = '找不到這首歌的歌詞，請確認專輯名稱／歌手拼法是否正確（可從上方搜尋結果直接點選），或改用「手動」分頁貼上歌詞。';
     return;
   }
+  const lang = detectLangFromText(text);
   songSearchStatus.textContent = '找到歌詞，開始拆解單字（完整歌詞不會被儲存或顯示，只會保留單字周邊的短片段）…';
   await analyzeLyricsText(text, lang);
   songSearchStatus.style.display = 'none';
