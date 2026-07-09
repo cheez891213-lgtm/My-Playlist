@@ -2270,11 +2270,21 @@ autoTabBtn.addEventListener('click', ()=> setLyricsTab('auto'));
 manualTabBtn.addEventListener('click', ()=> setLyricsTab('manual'));
 setLyricsTab('auto');
 
-// Simple heuristic to pick a tokenizer language for the "自動" tab, which has
-// no visible language selector (that field only shows on the "手動" tab).
-// Hangul present -> Korean, otherwise default to Japanese.
+// Picks a tokenizer language for the "自動" tab, which has no visible
+// language selector (that field only shows on the "手動" tab).
+//
+// IMPORTANT: this used to default to Japanese whenever no Hangul was found,
+// which meant that if the fetched "lyrics" weren't actually Japanese at all
+// (wrong song matched, English/romanized lyrics, disclaimer text, etc.), the
+// text still got force-fed to the Japanese AI extractor as if it were
+// Japanese - producing a whole album of nonsense/garbled translations. Now it
+// explicitly checks for kana/kanji or Hangul and returns null if neither is
+// present, so that case can be treated as "couldn't find real lyrics" instead
+// of silently mistranslating everything.
 function detectLangFromText(text){
-  return /[\uAC00-\uD7A3]/.test(text) ? 'ko' : 'ja';
+  if(/[\uAC00-\uD7A3]/.test(text)) return 'ko';
+  if(/[\u3040-\u30FF\u4E00-\u9FFF]/.test(text)) return 'ja';
+  return null;
 }
 
 // Currently selected song's metadata from iTunes (exact title/artist for the
@@ -2348,6 +2358,13 @@ albumArtistInput.addEventListener('input', scheduleItunesSearch);
 // free lyrics APIs), then falls back to lyrics.ovh. Each provider is also
 // retried with just the title if an artist-qualified search comes up empty,
 // since exact-artist-name mismatches are a common cause of false "not found".
+// Basic sanity check so a too-short/garbage response (error pages, "lyrics
+// not available" placeholders, disclaimer-only text, etc.) is treated as
+// "not found" instead of being fed into the AI as if it were real lyrics.
+function looksLikeRealLyrics(text){
+  return !!text && text.replace(/\s+/g, '').length >= 30;
+}
+
 async function fetchLyricsFromLrclib(title, artist){
   const tryQuery = async (params)=>{
     try{
@@ -2355,7 +2372,7 @@ async function fetchLyricsFromLrclib(title, artist){
       if(!res.ok) return null;
       const data = await res.json();
       if(!Array.isArray(data) || !data.length) return null;
-      const withLyrics = data.find(d => d.plainLyrics && d.plainLyrics.trim());
+      const withLyrics = data.find(d => d.plainLyrics && looksLikeRealLyrics(d.plainLyrics.trim()));
       return withLyrics ? withLyrics.plainLyrics.trim() : null;
     }catch(e){ return null; }
   };
@@ -2373,7 +2390,8 @@ async function fetchLyricsFromOvh(title, artist){
       const res = await fetch(url);
       if(!res.ok) return null;
       const data = await res.json();
-      return (data && typeof data.lyrics === 'string' && data.lyrics.trim()) ? data.lyrics.trim() : null;
+      const lyrics = data && typeof data.lyrics === 'string' ? data.lyrics.trim() : '';
+      return looksLikeRealLyrics(lyrics) ? lyrics : null;
     }catch(e){ return null; }
   };
   if(artist){
@@ -2503,27 +2521,51 @@ const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 // Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
 // Explicitly requests the gemini-2.5-flash model (the Worker should honor this
 // field if it forwards it to the Gemini API; ignored otherwise).
+//
+// Logs to the console at every failure point (network error, bad HTTP
+// status, unparsable response, empty result) so you can open DevTools
+// (F12 → Console) and see exactly why Gemini isn't being used, instead of
+// it silently degrading to the free fallback translator with no explanation.
 async function callGeminiProxy(prompt){
-  if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
+  if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE'){
+    console.warn('[AI] Gemini proxy URL not set, skipping.');
+    return null;
+  }
+  let res;
   try{
-    const res = await fetch(GEMINI_PROXY_URL, {
+    res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
     });
-    if(!res.ok) return null;
+  }catch(e){
+    console.warn('[AI] Gemini proxy request failed (network/CORS error). If you are hosting this page somewhere other than where the Worker was originally tested, make sure the Worker\'s CORS settings allow this page\'s domain.', e);
+    return null;
+  }
+  if(!res.ok){
+    let bodyPreview = '';
+    try{ bodyPreview = (await res.text()).slice(0, 200); }catch(e2){}
+    console.warn(`[AI] Gemini proxy returned HTTP ${res.status}.`, bodyPreview);
+    return null;
+  }
+  try{
     const text = await res.text();
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    if(parsed === null || parsed === undefined) return null;
-    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) return null;
-    if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0) return null;
-    if(Array.isArray(parsed) && parsed.length === 0) return null;
+    if(parsed === null || parsed === undefined){ console.warn('[AI] Gemini proxy returned null/undefined JSON.'); return null; }
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error){ console.warn('[AI] Gemini proxy returned an error field:', parsed.error); return null; }
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0){ console.warn('[AI] Gemini proxy returned an empty object.'); return null; }
+    if(Array.isArray(parsed) && parsed.length === 0){ console.warn('[AI] Gemini proxy returned an empty array.'); return null; }
+    console.info('[AI] Gemini proxy succeeded.');
     return parsed;
-  }catch(e){ return null; }
+  }catch(e){
+    console.warn('[AI] Gemini proxy response was not valid JSON.', e);
+    return null;
+  }
 }
 
-// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
+// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview -
+// outside of it, api.anthropic.com will reject the browser request, which is expected).
 async function callClaude(prompt){
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2535,22 +2577,29 @@ async function callClaude(prompt){
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if(!res.ok) return null;
+    if(!res.ok){ console.warn(`[AI] Claude fallback returned HTTP ${res.status} (expected outside claude.ai).`); return null; }
     const data = await res.json();
     const text = (data.content || []).map(b=>b.text || '').join('');
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
+    if(parsed !== null && parsed !== undefined) console.info('[AI] Claude fallback succeeded.');
     return parsed ?? null;
-  }catch(e){ return null; }
+  }catch(e){
+    console.warn('[AI] Claude fallback failed (expected outside claude.ai).', e);
+    return null;
+  }
 }
 
 // Tries your Gemini Worker first, then Claude (claude.ai only). Returns parsed
-// JSON (object or array) or null if neither is available/working.
+// JSON (object or array) or null if neither is available/working - callers
+// then fall back further to free translation APIs. Check the browser console
+// for [AI] log lines to see exactly which provider actually handled each call.
 async function callAI(prompt){
   const g = await callGeminiProxy(prompt);
   if(g) return g;
   const c = await callClaude(prompt);
   if(c) return c;
+  console.warn('[AI] Both Gemini and Claude unavailable - falling back to free translation APIs (lower quality, word-by-word, no context).');
   return null;
 }
 
@@ -2960,6 +3009,10 @@ document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
     return;
   }
   const lang = detectLangFromText(text);
+  if(!lang){
+    songSearchStatus.textContent = '找到的內容看起來不是日文或韓文歌詞（可能抓到錯誤版本或無關內容），請確認上方搜尋結果選對歌曲，或改用「手動」分頁貼上正確歌詞。';
+    return;
+  }
   songSearchStatus.textContent = '找到歌詞，開始拆解單字（完整歌詞不會被儲存或顯示，只會保留單字周邊的短片段）…';
   await analyzeLyricsText(text, lang);
   songSearchStatus.style.display = 'none';
