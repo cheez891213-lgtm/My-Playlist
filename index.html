@@ -2072,33 +2072,7 @@ fillInputEl.addEventListener('keydown', (e)=>{
 function getSentenceQuizPool(){
   return getStudyPool().filter(c => c.back && c.back.trim());
 }
-// Generic Chinese sentence templates used as an offline fallback if the AI
-// call fails (e.g. no network, proxy down), so the quiz can still proceed
-// instead of just showing an error.
-const SENTENCE_FALLBACK_TEMPLATES = [
-  '我今天突然想到「%W%」這件事。',
-  '你平常也會用到「%W%」嗎？',
-  '這個週末的計畫跟「%W%」有點關係。',
-  '我朋友最近常常提到「%W%」。',
-  '可以跟我介紹一下「%W%」嗎？',
-  '我覺得「%W%」對我來說很重要。',
-  '%W%其實沒有你想像中那麼難。',
-  '別再拖了，快點把%W%處理好吧！',
-  '如果沒有%W%，今天的計畫大概會亂掉。',
-  '說真的，我完全不懂%W%是怎麼一回事。',
-  '為什麼大家最近都在討論%W%？',
-  '老實說，我對%W%一點興趣都沒有。'
-];
-// Different grammatical/tone styles so the AI (and the offline fallback)
-// doesn't keep producing the same kind of sentence every time.
-const SENTENCE_STYLE_HINTS = [
-  '直述句', '疑問句', '否定句', '感嘆句', '假設句（如果...就...）',
-  '建議或命令語氣', '帶點情緒或抱怨語氣的口語句子', '朋友間輕鬆聊天的口吻'
-];
-function buildFallbackSentence(meaning){
-  const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
-  return t.replace('%W%', meaning);
-}
+
 async function pickSentenceQuestion(){
   const requestId = ++sentenceQuizRequestId;
   const pool = getSentenceQuizPool();
