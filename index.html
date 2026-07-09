@@ -2081,7 +2081,19 @@ const SENTENCE_FALLBACK_TEMPLATES = [
   '這個週末的計畫跟「%W%」有點關係。',
   '我朋友最近常常提到「%W%」。',
   '可以跟我介紹一下「%W%」嗎？',
-  '我覺得「%W%」對我來說很重要。'
+  '我覺得「%W%」對我來說很重要。',
+  '%W%其實沒有你想像中那麼難。',
+  '別再拖了，快點把%W%處理好吧！',
+  '如果沒有%W%，今天的計畫大概會亂掉。',
+  '說真的，我完全不懂%W%是怎麼一回事。',
+  '為什麼大家最近都在討論%W%？',
+  '老實說，我對%W%一點興趣都沒有。'
+];
+// Different grammatical/tone styles so the AI (and the offline fallback)
+// doesn't keep producing the same kind of sentence every time.
+const SENTENCE_STYLE_HINTS = [
+  '直述句', '疑問句', '否定句', '感嘆句', '假設句（如果...就...）',
+  '建議或命令語氣', '帶點情緒或抱怨語氣的口語句子', '朋友間輕鬆聊天的口吻'
 ];
 function buildFallbackSentence(meaning){
   const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
@@ -2114,7 +2126,8 @@ async function pickSentenceQuestion(){
   sentenceQuizQuestionText = '';
 
   const meaning = chosen.back;
-  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
+  const style = SENTENCE_STYLE_HINTS[Math.floor(Math.random() * SENTENCE_STYLE_HINTS.length)];
+  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。這次請用「${style}」的句型/語氣來寫，並避免每次都用同樣的句子結構或開頭（例如不要每次都用「我...」開頭，也不需要把詞彙加上引號）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
 
   // Try twice before giving up, then fall back to a local template so the
   // quiz can always proceed even if the AI proxy is temporarily unreachable.
