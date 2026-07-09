@@ -2042,20 +2042,84 @@ fillInputEl.addEventListener('keydown', (e)=>{
    Uses the Chinese meaning of one random word in the current album/scope,
    asks the AI to write a natural everyday Chinese sentence using it, has the
    user translate the whole sentence into Korean, then asks the AI to grade it. */
-  // 這裡接續你 submitSentenceAnswer 函式前半段抓取答案後的程式碼：
-  BtnEl.disabled = true;
+function getSentenceQuizPool(){
+  return getStudyPool().filter(c => c.back && c.back.trim());
+}
+// Generic Chinese sentence templates used as an offline fallback if the AI
+// call fails (e.g. no network, proxy down), so the quiz can still proceed
+// instead of just showing an error.
+const SENTENCE_FALLBACK_TEMPLATES = [
+  '我今天突然想到「%W%」這件事。',
+  '你平常也會用到「%W%」嗎？',
+  '這個週末的計畫跟「%W%」有點關係。',
+  '我朋友最近常常提到「%W%」。',
+  '可以跟我介紹一下「%W%」嗎？',
+  '我覺得「%W%」對我來說很重要。'
+];
+function buildFallbackSentence(meaning){
+  const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
+  return t.replace('%W%', meaning);
+}
+async function pickSentenceQuestion(){
+  const requestId = ++sentenceQuizRequestId;
+  const pool = getSentenceQuizPool();
+  sentenceQuizLocked = false;
+  sentenceFeedbackEl.textContent = '';
+  sentenceFeedbackEl.className = 'fill-feedback';
+  sentenceNextBtnEl.style.display = 'none';
+  sentenceAnswerInputEl.value = '';
+  if(pool.length < 1){
+    emptySentenceQuiz.style.display = 'block';
+    sentenceQuestionEl.style.display = 'none';
+    sentenceAnswerInputEl.style.display = 'none';
+    document.querySelector('#quizSentenceMode .sentence-quiz-actions').style.display = 'none';
+    return;
+  }
+  emptySentenceQuiz.style.display = 'none';
+  sentenceQuestionEl.style.display = 'block';
+  sentenceAnswerInputEl.style.display = 'block';
+  document.querySelector('#quizSentenceMode .sentence-quiz-actions').style.display = 'flex';
+
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  sentenceQuestionEl.textContent = 'AI 出題中…';
+  sentenceAnswerInputEl.disabled = true;
+  sentenceSubmitBtnEl.disabled = true;
+  sentenceQuizQuestionText = '';
+
+  const meaning = chosen.back;
+  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
+
+  // Try twice before giving up, then fall back to a local template so the
+  // quiz can always proceed even if the AI proxy is temporarily unreachable.
+  let result = await callAI(prompt);
+  if(!result || !result.sentence){
+    await new Promise(r=>setTimeout(r, 700));
+    result = await callAI(prompt);
+  }
+  if(requestId !== sentenceQuizRequestId) return; // stale response, a newer question was requested
+
+  sentenceQuizQuestionText = (result && result.sentence) ? result.sentence : buildFallbackSentence(meaning);
+  sentenceQuestionEl.textContent = sentenceQuizQuestionText;
+  sentenceAnswerInputEl.disabled = false;
+  sentenceSubmitBtnEl.disabled = false;
+  sentenceAnswerInputEl.focus();
+}
+async function submitSentenceAnswer(){
+  if(sentenceQuizLocked || !sentenceQuizQuestionText) return;
+  const raw = sentenceAnswerInputEl.value.trim();
+  if(!raw) return;
+  sentenceQuizLocked = true;
+  sentenceAnswerInputEl.disabled = true;
+  sentenceSubmitBtnEl.disabled = true;
   sentenceFeedbackEl.textContent = 'AI 批改中…';
   sentenceFeedbackEl.className = 'fill-feedback';
 
-  const prompt = `你是一位嚴謹但親切的韓文老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成韓文的答案："${raw}"。請判斷這個韓文翻譯是否推確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的韓文參考翻譯"}。`;
-  
-  // 【修改點】直接替換成強壯的 Gemini Flash 呼叫器
-  let result = await askGeminiFlash(prompt);
+  const prompt = `你是一位嚴謹但親切的韓文老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成韓文的答案："${raw}"。請判斷這個韓文翻譯是否正確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的韓文參考翻譯"}。`;
+  let result = await callAI(prompt);
   if(!result || typeof result.correct !== 'boolean'){
     await new Promise(r=>setTimeout(r, 700));
-    result = await askGeminiFlash(prompt); // 這裡同步換成 askGeminiFlash
+    result = await callAI(prompt);
   }
-  
   if(!result || typeof result.correct !== 'boolean'){
     sentenceFeedbackEl.textContent = 'AI 批改失敗，請重新送出一次。';
     sentenceFeedbackEl.className = 'fill-feedback wrong';
@@ -2065,8 +2129,6 @@ fillInputEl.addEventListener('keydown', (e)=>{
     showToast('AI 暫時無法使用');
     return;
   }
-  
-  // ---- 以下全部是你原本一模一樣的造句功能，完全不變 ----
   quizScore.total++;
   if(result.correct){
     quizScore.correct++;
@@ -2079,8 +2141,6 @@ fillInputEl.addEventListener('keydown', (e)=>{
   sentenceFeedbackEl.className = 'fill-feedback ' + (result.correct ? 'correct' : 'wrong');
   sentenceNextBtnEl.style.display = 'inline-block';
 }
-
-// 所有的事件監聽器也完整原封不動保留
 document.getElementById('sentenceSubmitBtn').addEventListener('click', submitSentenceAnswer);
 document.getElementById('sentenceNextBtn').addEventListener('click', pickSentenceQuestion);
 sentenceAnswerInputEl.addEventListener('keydown', (e)=>{
@@ -2095,7 +2155,6 @@ document.getElementById('quizThisAlbumBtn').addEventListener('click', ()=>{
   studyAlbumFilter = currentAlbumId;
   tabQuiz.click();
 });
-  
 
 /* ---- Lyrics import ---- */
 const openLyricsBtn = document.getElementById('openLyricsBtn');
@@ -2256,21 +2315,19 @@ let lyricsCandidates = [];
 
 const LANG_NAMES = { en:'English', ja:'Japanese', ko:'Korean' };
 
-// Your own Cloudflare Worker URL that proxies to Gemini (see setup instructions).
-// This Worker just relays whatever prompt the frontend sends it, so future
-// prompt changes on this page never require touching the Worker again.
+// Your Cloudflare Worker URL that proxies to Gemini (keeps your API key off
+// the client). This Worker just relays whatever prompt the frontend sends it.
 const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 
 // Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
-// Explicitly requests the gemini-2.5-flash model (the Worker should honor this
-// field if it forwards it to the Gemini API; ignored otherwise).
-async function callGeminiProxy(prompt){
+// Uses the gemini-flash-latest model.
+async function callAI(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   try{
     const res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
+      body: JSON.stringify({ prompt, model: 'gemini-flash-latest' })
     });
     if(!res.ok) return null;
     const text = await res.text();
@@ -2284,53 +2341,16 @@ async function callGeminiProxy(prompt){
   }catch(e){ return null; }
 }
 
-// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
-async function callClaude(prompt){
-  try{
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    if(!res.ok) return null;
-    const data = await res.json();
-    const text = (data.content || []).map(b=>b.text || '').join('');
-    const clean = text.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
-    return parsed ?? null;
-  }catch(e){ return null; }
-}
-
-// Tries your Gemini Worker first, then Claude (claude.ai only). Returns parsed
-// JSON (object or array) or null if neither is available/working.
-async function callAI(prompt){
-  const g = await callGeminiProxy(prompt);
-  if(g) return g;
-  const c = await callClaude(prompt);
-  if(c) return c;
-  return null;
-}
-
 function buildWordTranslationPrompt(words, langName){
   return `The following words are extracted from ${langName} song lyrics and may be inflected or conjugated forms (plurals, verb tenses, etc). For each word, provide: (1) "translation" - its Traditional Chinese (zh-TW) translation as used in that lyrical context, (2) "base" - the dictionary/base form of the word in its original language (e.g. the infinitive/lemma form; if the word is already in its base form, repeat the same word), and (3) "reading" - ONLY if the language is Japanese and the base form contains kanji, give its hiragana reading; otherwise leave "reading" as an empty string. Reply with ONLY a raw JSON object mapping each original word to an object like {"translation":"...","base":"...","reading":"..."} - no markdown fences, no explanation.\n\nWords: ${JSON.stringify(words)}`;
 }
 
-async function translateBatchWithGeminiProxy(words, lang){
+async function translateBatchWithAI(words, lang){
   const langName = LANG_NAMES[lang] || lang;
-  const parsed = await callGeminiProxy(buildWordTranslationPrompt(words, langName));
+  const parsed = await callAI(buildWordTranslationPrompt(words, langName));
   if(!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const gotAny = words.some(w => parsed[w] && (typeof parsed[w] === 'object' ? parsed[w].translation : parsed[w]));
   return gotAny ? parsed : null;
-}
-
-async function translateBatchWithClaude(words, lang){
-  const langName = LANG_NAMES[lang] || lang;
-  const parsed = await callClaude(buildWordTranslationPrompt(words, langName));
-  return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
 }
 
 // Full-text AI extraction for Japanese: instead of guessing word boundaries
@@ -2468,26 +2488,11 @@ async function translateWordsWithFreeFallback(words, lang, onProgress){
 }
 
 async function translateWordChunk(words, lang, onProgress){
-  const geminiResult = await translateBatchWithGeminiProxy(words, lang);
-  if(geminiResult){
+  const aiResult = await translateBatchWithAI(words, lang);
+  if(aiResult){
     const missing = [];
     words.forEach(w=>{
-      const entry = geminiResult[w];
-      const translation = entry && typeof entry === 'object' ? entry.translation : entry;
-      if(translation){
-        onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
-      }else{
-        missing.push(w);
-      }
-    });
-    if(missing.length) await translateWordsWithFreeFallback(missing, lang, onProgress);
-    return;
-  }
-  const claudeResult = await translateBatchWithClaude(words, lang);
-  if(claudeResult){
-    const missing = [];
-    words.forEach(w=>{
-      const entry = claudeResult[w];
+      const entry = aiResult[w];
       const translation = entry && typeof entry === 'object' ? entry.translation : entry;
       if(translation){
         onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
