@@ -2638,13 +2638,17 @@ async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   geminiQuotaExceeded = false;
   // Gemini frequently returns 503 ("model overloaded") when its servers are
-  // momentarily busy - this is transient and usually clears up within a
-  // second or two, so retry a couple of times with backoff before giving up,
-  // instead of surfacing it to the user as a hard failure immediately.
-  const MAX_503_RETRIES = 3;
-  const BACKOFF_MS = [800, 1600, 3200];
+  // momentarily busy - this is transient, but during peak hours it can persist
+  // for several seconds, so retry with a longer backoff. If it's still 503
+  // after all retries, the "-latest" preview model may just be saturated, so
+  // make one final attempt against the stabler dated model as a fallback
+  // before giving up entirely.
+  const MAX_503_RETRIES = 4;
+  const BACKOFF_MS = [800, 1600, 3200, 6000];
+  const FALLBACK_MODEL = 'gemini-1.5-flash';
   try{
     let res, errBody = '';
+    let modelToUse = 'gemini-flash-latest';
     for(let attempt = 0; attempt <= MAX_503_RETRIES; attempt++){
       const controller = new AbortController();
       const timeoutId = setTimeout(()=>controller.abort(), 15000);
@@ -2652,7 +2656,7 @@ async function callGeminiProxy(prompt){
         res = await fetch(GEMINI_PROXY_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, model: 'gemini-flash-latest' }),
+          body: JSON.stringify({ prompt, model: modelToUse }),
           signal: controller.signal
         });
       }finally{
@@ -2661,7 +2665,8 @@ async function callGeminiProxy(prompt){
       if(res.ok) break;
       errBody = await res.text().catch(()=> '');
       if(res.status === 503 && attempt < MAX_503_RETRIES){
-        console.warn('[GeminiProxy] Got 503 (model overloaded), retrying in', BACKOFF_MS[attempt], 'ms');
+        if(attempt === MAX_503_RETRIES - 1) modelToUse = FALLBACK_MODEL;
+        console.warn('[GeminiProxy] Got 503 (model overloaded), retrying in', BACKOFF_MS[attempt], 'ms with model', modelToUse);
         await new Promise(r=>setTimeout(r, BACKOFF_MS[attempt]));
         continue;
       }
