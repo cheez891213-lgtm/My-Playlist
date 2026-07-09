@@ -2521,51 +2521,27 @@ const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 // Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
 // Explicitly requests the gemini-2.5-flash model (the Worker should honor this
 // field if it forwards it to the Gemini API; ignored otherwise).
-//
-// Logs to the console at every failure point (network error, bad HTTP
-// status, unparsable response, empty result) so you can open DevTools
-// (F12 → Console) and see exactly why Gemini isn't being used, instead of
-// it silently degrading to the free fallback translator with no explanation.
 async function callGeminiProxy(prompt){
-  if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE'){
-    console.warn('[AI] Gemini proxy URL not set, skipping.');
-    return null;
-  }
-  let res;
+  if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   try{
-    res = await fetch(GEMINI_PROXY_URL, {
+    const res = await fetch(GEMINI_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
     });
-  }catch(e){
-    console.warn('[AI] Gemini proxy request failed (network/CORS error). If you are hosting this page somewhere other than where the Worker was originally tested, make sure the Worker\'s CORS settings allow this page\'s domain.', e);
-    return null;
-  }
-  if(!res.ok){
-    let bodyPreview = '';
-    try{ bodyPreview = (await res.text()).slice(0, 200); }catch(e2){}
-    console.warn(`[AI] Gemini proxy returned HTTP ${res.status}.`, bodyPreview);
-    return null;
-  }
-  try{
+    if(!res.ok) return null;
     const text = await res.text();
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    if(parsed === null || parsed === undefined){ console.warn('[AI] Gemini proxy returned null/undefined JSON.'); return null; }
-    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error){ console.warn('[AI] Gemini proxy returned an error field:', parsed.error); return null; }
-    if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0){ console.warn('[AI] Gemini proxy returned an empty object.'); return null; }
-    if(Array.isArray(parsed) && parsed.length === 0){ console.warn('[AI] Gemini proxy returned an empty array.'); return null; }
-    console.info('[AI] Gemini proxy succeeded.');
+    if(parsed === null || parsed === undefined) return null;
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) return null;
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0) return null;
+    if(Array.isArray(parsed) && parsed.length === 0) return null;
     return parsed;
-  }catch(e){
-    console.warn('[AI] Gemini proxy response was not valid JSON.', e);
-    return null;
-  }
+  }catch(e){ return null; }
 }
 
-// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview -
-// outside of it, api.anthropic.com will reject the browser request, which is expected).
+// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
 async function callClaude(prompt){
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2577,29 +2553,22 @@ async function callClaude(prompt){
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if(!res.ok){ console.warn(`[AI] Claude fallback returned HTTP ${res.status} (expected outside claude.ai).`); return null; }
+    if(!res.ok) return null;
     const data = await res.json();
     const text = (data.content || []).map(b=>b.text || '').join('');
     const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
-    if(parsed !== null && parsed !== undefined) console.info('[AI] Claude fallback succeeded.');
     return parsed ?? null;
-  }catch(e){
-    console.warn('[AI] Claude fallback failed (expected outside claude.ai).', e);
-    return null;
-  }
+  }catch(e){ return null; }
 }
 
 // Tries your Gemini Worker first, then Claude (claude.ai only). Returns parsed
-// JSON (object or array) or null if neither is available/working - callers
-// then fall back further to free translation APIs. Check the browser console
-// for [AI] log lines to see exactly which provider actually handled each call.
+// JSON (object or array) or null if neither is available/working.
 async function callAI(prompt){
   const g = await callGeminiProxy(prompt);
   if(g) return g;
   const c = await callClaude(prompt);
   if(c) return c;
-  console.warn('[AI] Both Gemini and Claude unavailable - falling back to free translation APIs (lower quality, word-by-word, no context).');
   return null;
 }
 
