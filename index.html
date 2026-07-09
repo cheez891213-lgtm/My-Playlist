@@ -2009,9 +2009,8 @@ function pickFillQuestion(){
   fillInputEl.focus();
 }
 function guessCardLang(c){
-  const text = (c.surfaceWord || '') + ' ' + (c.front || '');
-  if(/[\uAC00-\uD7A3]/.test(text)) return 'ko';
-  if(/[\u3040-\u30FF\u4E00-\u9FFF]/.test(text)) return 'ja';
+  if(/[\uAC00-\uD7A3]/.test(c.surfaceWord)) return 'ko';
+  if(/[\u3040-\u30FF\u4E00-\u9FFF]/.test(c.surfaceWord)) return 'ja';
   return 'en';
 }
 function submitFillAnswer(){
@@ -2582,7 +2581,7 @@ async function translateBatchWithClaude(words, lang){
 // back word + base + reading + translation + the exact source line together.
 // Falls back to the local tokenizer (tokenizeLyrics) if no AI is available.
 async function extractJapaneseWordsWithAI(text){
-  const prompt = `You are building a vocabulary list from Japanese song lyrics for a language learner. From the lyrics below, extract each distinct meaningful content word (nouns, verbs, adjectives, adverbs) actually used in the text - correctly segmented as real Japanese words (do not split a word in the middle of a conjugation ending, and do not merge unrelated words together). Exclude particles (は, が, を, に, で, と, も, の, etc.), personal pronouns (私, 君, あなた, 彼, 彼女, etc.), and other pure grammatical function words. Do not include duplicates.\n\nFor each word, provide:\n- "word": the exact inflected/conjugated surface form as it appears in the lyrics\n- "base": the dictionary/base form (if already base form, repeat "word")\n- "reading": the hiragana reading of the base form if it contains kanji, otherwise an empty string\n- "translation": a Traditional Chinese (zh-TW) translation fitting the lyrical context\n- "sourceLine": a short, natural phrase (roughly 4-8 words/characters) immediately surrounding this word exactly as it appears in the lyrics - always break on whole-word boundaries (never cut a neighbouring word in half) and never return the whole line\n\nReply with ONLY a raw JSON array like [{"word":"...","base":"...","reading":"...","translation":"...","sourceLine":"..."}] - no markdown fences, no explanation.\n\nLyrics:\n${text}`;
+  const prompt = `You are building a vocabulary list from Japanese song lyrics for a language learner. From the lyrics below, extract each distinct meaningful content word (nouns, verbs, adjectives, adverbs) actually used in the text - correctly segmented as real Japanese words (do not split a word in the middle of a conjugation ending, and do not merge unrelated words together). Exclude particles (は, が, を, に, で, と, も, の, etc.), personal pronouns (私, 君, あなた, 彼, 彼女, etc.), and other pure grammatical function words. Do not include duplicates.\n\nFor each word, provide:\n- "word": the exact inflected/conjugated surface form as it appears in the lyrics\n- "base": the dictionary/base form (if already base form, repeat "word")\n- "reading": the hiragana reading of the base form if it contains kanji, otherwise an empty string\n- "translation": a Traditional Chinese (zh-TW) translation fitting the lyrical context\n- "sourceLine": the exact original lyric line (verbatim) that this word came from\n\nReply with ONLY a raw JSON array like [{"word":"...","base":"...","reading":"...","translation":"...","sourceLine":"..."}] - no markdown fences, no explanation.\n\nLyrics:\n${text}`;
   const parsed = await callAI(prompt);
   if(!Array.isArray(parsed) || !parsed.length) return null;
   return parsed.filter(e => e && e.word);
@@ -2811,58 +2810,8 @@ function renderLyricsCandidateRows(){
   });
 }
 
-// Given a full lyric line and a word inside it, return only a short
-// (few-word / few-character) window around the word - never the whole line.
-// This is used everywhere a "context snippet" is stored on a card, so the
-// site never reproduces or displays a complete lyric line, only a small
-// illustrative fragment (similar to a search-engine snippet).
-function shortSnippet(line, word, lang){
-  if(!line) return '';
-  if(LATIN_LANGS.has(lang)){
-    const tokens = line.split(/\s+/);
-    const re = new RegExp(`^${word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`, 'i');
-    let idx = tokens.findIndex(t=>re.test(t.replace(/[^a-zà-öø-ÿ']/gi,'')));
-    if(idx === -1) idx = Math.floor(tokens.length/2);
-    const start = Math.max(0, idx-2);
-    const end = Math.min(tokens.length, idx+3);
-    return tokens.slice(start, end).join(' ');
-  }
-  // Non-Latin (ja/ko): segment the line into real words first (same
-  // Intl.Segmenter used by tokenizeLyrics) and take a window of whole
-  // segments around the target word, instead of a raw character slice.
-  // Raw slicing could cut a *neighbouring* word in half, which is what made
-  // fill-in-the-blank sentences (and their translations) look broken.
-  if(typeof Intl !== 'undefined' && Intl.Segmenter){
-    try{
-      const seg = new Intl.Segmenter(lang, { granularity: 'word' });
-      const segments = [...seg.segment(line)].map(s=>s.segment);
-      const flatIdx = line.indexOf(word);
-      if(flatIdx !== -1){
-        let pos = 0, wordSegIdx = -1;
-        for(let i=0;i<segments.length;i++){
-          if(flatIdx >= pos && flatIdx < pos + segments[i].length){ wordSegIdx = i; break; }
-          pos += segments[i].length;
-        }
-        if(wordSegIdx !== -1){
-          const start = Math.max(0, wordSegIdx - 3);
-          const end = Math.min(segments.length, wordSegIdx + 4);
-          const snippet = segments.slice(start, end).join('').trim();
-          if(snippet) return snippet;
-        }
-      }
-    }catch(e){ /* fall through to raw slice below */ }
-  }
-  const idx = line.indexOf(word);
-  const center = idx === -1 ? Math.floor(line.length/2) : idx;
-  const start = Math.max(0, center-4);
-  const end = Math.min(line.length, center + word.length + 4);
-  return line.slice(start, end);
-}
-
 // Core analysis pipeline, shared by both the "paste lyrics" and "search by
-// song name" flows. `text` is only ever held in memory for the duration of
-// this function - it is never written into any input field, storage, or
-// visible element; only short per-word snippets end up on the cards.
+// song name" flows.
 async function analyzeLyricsText(text, lang){
   lyricsList.innerHTML = '';
   lyricsStatus.style.display = 'block';
@@ -2875,7 +2824,7 @@ async function analyzeLyricsText(text, lang){
     if(aiWords && aiWords.length){
       lyricsCandidates = aiWords.map(e=>({
         word: e.word, translation: e.translation || '（沒有翻譯）', base: e.base || e.word,
-        reading: e.reading || '', sourceLine: (e.sourceLine || '').slice(0, 20)
+        reading: e.reading || '', sourceLine: e.sourceLine || ''
       }));
       renderLyricsCandidateRows();
       lyricsStatus.textContent = `完成！取消勾選你不需要的單字，再按下方加入。`;
@@ -2889,17 +2838,17 @@ async function analyzeLyricsText(text, lang){
   const words = tokenizeLyrics(text, lang);
   if(!words.length){ showToast('沒有找到可用的新單字'); lyricsStatus.style.display = 'none'; return false; }
   const lyricLines = text.split(/\n+/).map(l=>l.trim()).filter(Boolean);
-  function findContextSnippet(word){
+  function findSourceLine(word){
     if(LATIN_LANGS.has(lang)){
       const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`, 'i');
-      for(const line of lyricLines){ if(re.test(line)) return shortSnippet(line, word, lang); }
+      for(const line of lyricLines){ if(re.test(line)) return line; }
     }else{
-      for(const line of lyricLines){ if(line.includes(word)) return shortSnippet(line, word, lang); }
+      for(const line of lyricLines){ if(line.includes(word)) return line; }
     }
     return '';
   }
   lyricsList.innerHTML = '';
-  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w, reading:'', sourceLine: findContextSnippet(w) }));
+  lyricsCandidates = words.map(w=>({ word:w, translation:'', base:w, reading:'', sourceLine: findSourceLine(w) }));
   lyricsStatus.textContent = `找到 ${words.length} 個單字，翻譯中… 0/${words.length}`;
   words.forEach(w=>{
     const row = document.createElement('div');
@@ -2968,7 +2917,7 @@ document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
     songSearchStatus.textContent = '找到的內容看起來不是日文或韓文歌詞（可能抓到錯誤版本或無關內容），請確認上方搜尋結果選對歌曲，或改用「手動」分頁貼上正確歌詞。';
     return;
   }
-  songSearchStatus.textContent = '找到歌詞，開始拆解單字（完整歌詞不會被儲存或顯示，只會保留單字周邊的短片段）…';
+  songSearchStatus.textContent = '找到歌詞，開始拆解單字…';
   await analyzeLyricsText(text, lang);
   songSearchStatus.style.display = 'none';
 });
