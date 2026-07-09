@@ -2324,18 +2324,54 @@ function scheduleItunesSearch(){
 albumNameInput.addEventListener('input', scheduleItunesSearch);
 albumArtistInput.addEventListener('input', scheduleItunesSearch);
 
-// Free, keyless lyrics lookup (lyrics.ovh). Used only to fetch lyrics text
-// momentarily in-browser so it can be broken into vocabulary cards below -
-// the full lyrics text itself is never stored or displayed anywhere on the
-// page, only short (few-word) context snippets per extracted word.
+// Free, keyless lyrics lookup. Used only to fetch lyrics text momentarily
+// in-browser so it can be broken into vocabulary cards below - the full
+// lyrics text itself is never stored or displayed anywhere on the page,
+// only short (few-word) context snippets per extracted word.
+//
+// Tries lrclib.net first (much better coverage for J-pop/K-pop than most
+// free lyrics APIs), then falls back to lyrics.ovh. Each provider is also
+// retried with just the title if an artist-qualified search comes up empty,
+// since exact-artist-name mismatches are a common cause of false "not found".
+async function fetchLyricsFromLrclib(title, artist){
+  const tryQuery = async (params)=>{
+    try{
+      const res = await fetch(`https://lrclib.net/api/search?${params.toString()}`);
+      if(!res.ok) return null;
+      const data = await res.json();
+      if(!Array.isArray(data) || !data.length) return null;
+      const withLyrics = data.find(d => d.plainLyrics && d.plainLyrics.trim());
+      return withLyrics ? withLyrics.plainLyrics.trim() : null;
+    }catch(e){ return null; }
+  };
+  if(artist){
+    const found = await tryQuery(new URLSearchParams({ track_name: title, artist_name: artist }));
+    if(found) return found;
+  }
+  return await tryQuery(new URLSearchParams({ track_name: title }));
+}
+
+async function fetchLyricsFromOvh(title, artist){
+  const tryQuery = async (a)=>{
+    try{
+      const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(a || '')}/${encodeURIComponent(title)}`;
+      const res = await fetch(url);
+      if(!res.ok) return null;
+      const data = await res.json();
+      return (data && typeof data.lyrics === 'string' && data.lyrics.trim()) ? data.lyrics.trim() : null;
+    }catch(e){ return null; }
+  };
+  if(artist){
+    const found = await tryQuery(artist);
+    if(found) return found;
+  }
+  return await tryQuery('');
+}
+
 async function fetchLyricsByTitle(title, artist){
-  try{
-    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist || '')}/${encodeURIComponent(title)}`;
-    const res = await fetch(url);
-    if(!res.ok) return null;
-    const data = await res.json();
-    return (data && typeof data.lyrics === 'string' && data.lyrics.trim()) ? data.lyrics.trim() : null;
-  }catch(e){ return null; }
+  const fromLrclib = await fetchLyricsFromLrclib(title, artist);
+  if(fromLrclib) return fromLrclib;
+  return await fetchLyricsFromOvh(title, artist);
 }
 const lyricsList = document.getElementById('lyricsList');
 const lyricsConfirmRow = document.getElementById('lyricsConfirmRow');
