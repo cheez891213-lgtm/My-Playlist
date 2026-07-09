@@ -500,7 +500,8 @@
     font-family:'IBM Plex Mono',monospace;font-size:12px;
     text-decoration:underline;
   }
-  .album-detail-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+  .album-detail-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:nowrap;}
+  .album-detail-actions .btn{flex:1;display:flex;align-items:center;justify-content:center;padding-left:6px;padding-right:6px;white-space:nowrap;}
   .quiz-mode-tabs{display:flex;justify-content:center;gap:8px;margin-bottom:16px;}
   .quiz-mode-btn{
     font-family:'IBM Plex Mono',monospace;font-size:12px;
@@ -758,9 +759,9 @@
         </div>
       </div>
       <div class="album-detail-actions">
-        <button class="btn" id="studyThisAlbumBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="14" width="4" height="6" rx="1.5"></rect><rect x="17.5" y="14" width="4" height="6" rx="1.5"></rect></svg>背誦這個專輯</button>
-        <button class="btn" id="quizThisAlbumBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M9 11l3 3L22 4"></path><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"></path></svg>測驗這個專輯</button>
-        <button class="btn" id="rebindPreviewBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>重新綁定試聽</button>
+        <button class="btn" id="studyThisAlbumBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="14" width="4" height="6" rx="1.5"></rect><rect x="17.5" y="14" width="4" height="6" rx="1.5"></rect></svg>背誦</button>
+        <button class="btn" id="quizThisAlbumBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M9 11l3 3L22 4"></path><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"></path></svg>測驗</button>
+        <button class="btn" id="rebindPreviewBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>綁定音樂</button>
       </div>
 
       <div class="add-btn-row">
@@ -1357,7 +1358,6 @@ function backToLibrary(){
   currentAlbumId = null;
   inAlbumView = false;
   deleteMode = false;
-  stopPreviewAudio();
   albumDetailView.style.display = 'none';
   libraryView.style.display = 'block';
   closeForm();
@@ -1478,6 +1478,7 @@ albumPreviewBtn.addEventListener('click', ()=>{
   }
   if(!previewAudio) previewAudio = new Audio();
   previewAudio.src = url;
+  previewAudio.loop = true;
   previewAudio.play();
   previewPlayingUrl = url;
   albumPreviewBtn.classList.add('playing');
@@ -2636,22 +2637,37 @@ let geminiQuotaExceeded = false;
 async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   geminiQuotaExceeded = false;
+  // Gemini frequently returns 503 ("model overloaded") when its servers are
+  // momentarily busy - this is transient and usually clears up within a
+  // second or two, so retry a couple of times with backoff before giving up,
+  // instead of surfacing it to the user as a hard failure immediately.
+  const MAX_503_RETRIES = 3;
+  const BACKOFF_MS = [800, 1600, 3200];
   try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(()=>controller.abort(), 15000);
-    let res;
-    try{
-      res = await fetch(GEMINI_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, model: 'gemini-flash-latest' }),
-        signal: controller.signal
-      });
-    }finally{
-      clearTimeout(timeoutId);
+    let res, errBody = '';
+    for(let attempt = 0; attempt <= MAX_503_RETRIES; attempt++){
+      const controller = new AbortController();
+      const timeoutId = setTimeout(()=>controller.abort(), 15000);
+      try{
+        res = await fetch(GEMINI_PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, model: 'gemini-flash-latest' }),
+          signal: controller.signal
+        });
+      }finally{
+        clearTimeout(timeoutId);
+      }
+      if(res.ok) break;
+      errBody = await res.text().catch(()=> '');
+      if(res.status === 503 && attempt < MAX_503_RETRIES){
+        console.warn('[GeminiProxy] Got 503 (model overloaded), retrying in', BACKOFF_MS[attempt], 'ms');
+        await new Promise(r=>setTimeout(r, BACKOFF_MS[attempt]));
+        continue;
+      }
+      break;
     }
     if(!res.ok){
-      const errBody = await res.text().catch(()=> '');
       if(res.status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(errBody)) geminiQuotaExceeded = true;
       console.error('[GeminiProxy] Worker responded with HTTP', res.status, errBody);
       return null;
