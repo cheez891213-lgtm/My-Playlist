@@ -374,16 +374,6 @@
   .btn.primary:hover{background:var(--green-dark);}
   .btn:hover{background:var(--paper-dark);}
   .btn.text{border:none;background:none;color:var(--ink-soft);}
-  .lyrics-tabs{display:flex;gap:8px;}
-  .tab-btn{padding:8px 18px;border:1px solid var(--line,#ddd);border-radius:8px;background:none;color:var(--ink-soft);cursor:pointer;font-size:14px;font-family:inherit;}
-  .tab-btn.active{background:var(--green);color:var(--on-accent);border-color:var(--green);font-weight:600;}
-  .song-candidate-list{display:flex;flex-direction:column;gap:6px;margin:6px 0 14px;}
-  .song-candidate-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:10px;cursor:pointer;background:var(--card-bg,#fff);}
-  .song-candidate-item:hover{border-color:var(--green);}
-  .song-candidate-item.selected{border-color:var(--green);background:rgba(0,0,0,0.03);}
-  .song-candidate-item img{width:44px;height:44px;border-radius:6px;object-fit:cover;flex-shrink:0;}
-  .song-candidate-item .sc-title{font-weight:600;}
-  .song-candidate-item .sc-artist{font-size:12px;color:var(--muted);}
   .album-detail-actions .btn{background:var(--green);border-color:var(--green);color:var(--on-accent);font-weight:600;}
   .album-detail-actions .btn:hover{background:var(--green-dark);border-color:var(--green-dark);}
 
@@ -642,12 +632,6 @@
   <div id="panelManage" class="panel active">
 
     <div class="form-card" id="lyricsForm" style="display:none;">
-      <div class="form-row">
-        <div class="lyrics-tabs">
-          <button type="button" class="tab-btn active" id="autoTabBtn">自動</button>
-          <button type="button" class="tab-btn" id="manualTabBtn">手動</button>
-        </div>
-      </div>
       <div id="albumMetaFields">
         <div class="form-row">
           <label>專輯名稱</label>
@@ -658,7 +642,7 @@
           <input type="text" id="albumArtistInput" placeholder="例如：IVE">
         </div>
         <div class="form-row">
-          <label>封面圖（選填，自動帶入後仍可自行更換）</label>
+          <label>封面圖（選填）</label>
           <div class="img-row">
             <div class="img-preview" id="albumCoverPreview">無圖片</div>
             <label class="file-label" for="albumCoverInput">選擇圖片</label>
@@ -667,30 +651,19 @@
           </div>
         </div>
       </div>
-      <div id="autoTabContent">
-        <div class="song-candidate-list" id="songCandidateList"></div>
-        <div class="form-actions">
-          <button type="button" class="btn primary" id="searchLyricsBtn">搜尋歌詞並分析</button>
-        </div>
-        <div class="lyrics-status" id="songSearchStatus" style="display:none;"></div>
+      <div class="form-row">
+        <label>貼上歌詞</label>
+        <textarea id="lyricsInput" style="min-height:120px;" placeholder="在這裡貼上一整段歌詞…"></textarea>
       </div>
-      <div id="manualTabContent" style="display:none;">
-        <div class="form-row">
-          <label>貼上歌詞</label>
-          <textarea id="lyricsInput" style="min-height:120px;" placeholder="在這裡貼上一整段歌詞…"></textarea>
-        </div>
-        <div class="form-row">
-          <label>歌詞語言</label>
-          <select id="lyricsLangSelect">
-            <option value="ja">日文</option>
-            <option value="ko">韓文</option>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn primary" id="analyzeLyricsBtn">分析歌詞並翻譯</button>
-        </div>
+      <div class="form-row">
+        <label>歌詞語言</label>
+        <select id="lyricsLangSelect">
+          <option value="ko">韓文</option>
+          <option value="ja">日文</option>
+        </select>
       </div>
       <div class="form-actions">
+        <button class="btn primary" id="analyzeLyricsBtn">分析歌詞並翻譯</button>
         <button class="btn text" id="cancelLyricsBtn">取消</button>
       </div>
       <div class="lyrics-status" id="lyricsStatus" style="display:none;"></div>
@@ -2072,7 +2045,21 @@ fillInputEl.addEventListener('keydown', (e)=>{
 function getSentenceQuizPool(){
   return getStudyPool().filter(c => c.back && c.back.trim());
 }
-
+// Generic Chinese sentence templates used as an offline fallback if the AI
+// call fails (e.g. no network, proxy down), so the quiz can still proceed
+// instead of just showing an error.
+const SENTENCE_FALLBACK_TEMPLATES = [
+  '我今天突然想到「%W%」這件事。',
+  '你平常也會用到「%W%」嗎？',
+  '這個週末的計畫跟「%W%」有點關係。',
+  '我朋友最近常常提到「%W%」。',
+  '可以跟我介紹一下「%W%」嗎？',
+  '我覺得「%W%」對我來說很重要。'
+];
+function buildFallbackSentence(meaning){
+  const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
+  return t.replace('%W%', meaning);
+}
 async function pickSentenceQuestion(){
   const requestId = ++sentenceQuizRequestId;
   const pool = getSentenceQuizPool();
@@ -2100,8 +2087,7 @@ async function pickSentenceQuestion(){
   sentenceQuizQuestionText = '';
 
   const meaning = chosen.back;
-  const style = SENTENCE_STYLE_HINTS[Math.floor(Math.random() * SENTENCE_STYLE_HINTS.length)];
-  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。這次請用「${style}」的句型/語氣來寫，並避免每次都用同樣的句子結構或開頭（例如不要每次都用「我...」開頭，也不需要把詞彙加上引號）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
+  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
 
   // Try twice before giving up, then fall back to a local template so the
   // quiz can always proceed even if the AI proxy is temporarily unreachable.
@@ -2220,164 +2206,8 @@ editAlbumCoverInput.addEventListener('change', async ()=>{
   editAlbumCoverInput.value = '';
 });
 
-const lyricsStatus = document.getElementById('lyricsStatus');
 const lyricsInput = document.getElementById('lyricsInput');
-const autoTabBtn = document.getElementById('autoTabBtn');
-const manualTabBtn = document.getElementById('manualTabBtn');
-const autoTabContent = document.getElementById('autoTabContent');
-const manualTabContent = document.getElementById('manualTabContent');
-const songSearchStatus = document.getElementById('songSearchStatus');
-const songCandidateList = document.getElementById('songCandidateList');
-
-let lyricsTabMode = 'auto';
-function setLyricsTab(tab){
-  lyricsTabMode = tab;
-  const isManual = tab === 'manual';
-  manualTabBtn.classList.toggle('active', isManual);
-  autoTabBtn.classList.toggle('active', !isManual);
-  manualTabContent.style.display = isManual ? 'block' : 'none';
-  autoTabContent.style.display = isManual ? 'none' : 'block';
-}
-autoTabBtn.addEventListener('click', ()=> setLyricsTab('auto'));
-manualTabBtn.addEventListener('click', ()=> setLyricsTab('manual'));
-setLyricsTab('auto');
-
-// Picks a tokenizer language for the "自動" tab, which has no visible
-// language selector (that field only shows on the "手動" tab).
-//
-// IMPORTANT: this used to default to Japanese whenever no Hangul was found,
-// which meant that if the fetched "lyrics" weren't actually Japanese at all
-// (wrong song matched, English/romanized lyrics, disclaimer text, etc.), the
-// text still got force-fed to the Japanese AI extractor as if it were
-// Japanese - producing a whole album of nonsense/garbled translations. Now it
-// explicitly checks for kana/kanji or Hangul and returns null if neither is
-// present, so that case can be treated as "couldn't find real lyrics" instead
-// of silently mistranslating everything.
-function detectLangFromText(text){
-  if(/[\uAC00-\uD7A3]/.test(text)) return 'ko';
-  if(/[\u3040-\u30FF\u4E00-\u9FFF]/.test(text)) return 'ja';
-  return null;
-}
-
-// Currently selected song's metadata from iTunes (exact title/artist for the
-// lyrics lookup, cover art, and 30s official preview clip URL). Used to
-// auto-fill the album cover and, later, could power a listening feature -
-// iTunes never gives full song audio, only the short official preview, so
-// this stays within iTunes' own developer terms.
-let selectedSongMeta = null;
-
-// Free, keyless song lookup via Apple's public iTunes Search API. No API key
-// needed, CORS-enabled, and only returns metadata (title/artist/artwork) plus
-// an official 30-second preview clip - never full audio or lyrics.
-async function searchITunes(term){
-  if(!term || term.trim().length < 2) return [];
-  try{
-    const url = `https://itunes.apple.com/search?media=music&entity=song&limit=6&term=${encodeURIComponent(term)}`;
-    const res = await fetch(url);
-    if(!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.results) ? data.results : [];
-  }catch(e){ return []; }
-}
-
-function renderSongCandidates(results){
-  songCandidateList.innerHTML = '';
-  results.forEach(r=>{
-    const item = document.createElement('div');
-    item.className = 'song-candidate-item';
-    const cover = (r.artworkUrl100 || '').replace('100x100bb', '200x200bb');
-    item.innerHTML = `${cover ? `<img src="${cover}" alt="">` : ''}<div><div class="sc-title">${escapeHtml(r.trackName || '')}</div><div class="sc-artist">${escapeHtml(r.artistName || '')}${r.collectionName ? ' · ' + escapeHtml(r.collectionName) : ''}</div></div>`;
-    item.addEventListener('click', ()=>{
-      // Fill in the shared 歌手 field only if the user hasn't already typed
-      // one; never overwrite the 專輯名稱 field the user chose themselves.
-      if(!albumArtistInput.value.trim()) albumArtistInput.value = r.artistName || '';
-      selectedSongMeta = {
-        title: r.trackName || '',
-        artist: r.artistName || '',
-        artworkUrl: (r.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-        previewUrl: r.previewUrl || null
-      };
-      songCandidateList.querySelectorAll('.song-candidate-item').forEach(el=>el.classList.remove('selected'));
-      item.classList.add('selected');
-      songCandidateList.innerHTML = '';
-    });
-    songCandidateList.appendChild(item);
-  });
-}
-
-let itunesSearchTimer = null;
-function scheduleItunesSearch(){
-  selectedSongMeta = null;
-  clearTimeout(itunesSearchTimer);
-  if(lyricsTabMode !== 'auto'){ songCandidateList.innerHTML = ''; return; }
-  const title = albumNameInput.value.trim();
-  if(!title){ songCandidateList.innerHTML = ''; return; }
-  itunesSearchTimer = setTimeout(async ()=>{
-    const term = [title, albumArtistInput.value.trim()].filter(Boolean).join(' ');
-    const results = await searchITunes(term);
-    renderSongCandidates(results);
-  }, 400);
-}
-albumNameInput.addEventListener('input', scheduleItunesSearch);
-albumArtistInput.addEventListener('input', scheduleItunesSearch);
-
-// Free, keyless lyrics lookup. Used only to fetch lyrics text momentarily
-// in-browser so it can be broken into vocabulary cards below - the full
-// lyrics text itself is never stored or displayed anywhere on the page,
-// only short (few-word) context snippets per extracted word.
-//
-// Tries lrclib.net first (much better coverage for J-pop/K-pop than most
-// free lyrics APIs), then falls back to lyrics.ovh. Each provider is also
-// retried with just the title if an artist-qualified search comes up empty,
-// since exact-artist-name mismatches are a common cause of false "not found".
-// Basic sanity check so a too-short/garbage response (error pages, "lyrics
-// not available" placeholders, disclaimer-only text, etc.) is treated as
-// "not found" instead of being fed into the AI as if it were real lyrics.
-function looksLikeRealLyrics(text){
-  return !!text && text.replace(/\s+/g, '').length >= 30;
-}
-
-async function fetchLyricsFromLrclib(title, artist){
-  const tryQuery = async (params)=>{
-    try{
-      const res = await fetch(`https://lrclib.net/api/search?${params.toString()}`);
-      if(!res.ok) return null;
-      const data = await res.json();
-      if(!Array.isArray(data) || !data.length) return null;
-      const withLyrics = data.find(d => d.plainLyrics && looksLikeRealLyrics(d.plainLyrics.trim()));
-      return withLyrics ? withLyrics.plainLyrics.trim() : null;
-    }catch(e){ return null; }
-  };
-  if(artist){
-    const found = await tryQuery(new URLSearchParams({ track_name: title, artist_name: artist }));
-    if(found) return found;
-  }
-  return await tryQuery(new URLSearchParams({ track_name: title }));
-}
-
-async function fetchLyricsFromOvh(title, artist){
-  const tryQuery = async (a)=>{
-    try{
-      const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(a || '')}/${encodeURIComponent(title)}`;
-      const res = await fetch(url);
-      if(!res.ok) return null;
-      const data = await res.json();
-      const lyrics = data && typeof data.lyrics === 'string' ? data.lyrics.trim() : '';
-      return looksLikeRealLyrics(lyrics) ? lyrics : null;
-    }catch(e){ return null; }
-  };
-  if(artist){
-    const found = await tryQuery(artist);
-    if(found) return found;
-  }
-  return await tryQuery('');
-}
-
-async function fetchLyricsByTitle(title, artist){
-  const fromLrclib = await fetchLyricsFromLrclib(title, artist);
-  if(fromLrclib) return fromLrclib;
-  return await fetchLyricsFromOvh(title, artist);
-}
+const lyricsStatus = document.getElementById('lyricsStatus');
 const lyricsList = document.getElementById('lyricsList');
 const lyricsConfirmRow = document.getElementById('lyricsConfirmRow');
 const lyricsSelectRow = document.getElementById('lyricsSelectRow');
@@ -2496,36 +2326,14 @@ const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
   try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(()=>controller.abort(), 15000);
-    let res;
-    try{
-      res = await fetch(GEMINI_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' }),
-        signal: controller.signal
-      });
-    }finally{
-      clearTimeout(timeoutId);
-    }
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
+    });
     if(!res.ok) return null;
-    let text = await res.text();
-    // The Worker may relay the raw Gemini API response envelope
-    // (candidates[0].content.parts[0].text) instead of just the model's
-    // text - unwrap it first if that's the shape we got.
-    try{
-      const envelope = JSON.parse(text);
-      const innerText = envelope && envelope.candidates && envelope.candidates[0]
-        && envelope.candidates[0].content && envelope.candidates[0].content.parts
-        && envelope.candidates[0].content.parts[0] && envelope.candidates[0].content.parts[0].text;
-      if(typeof innerText === 'string') text = innerText;
-    }catch(_e){ /* not an envelope, treat text as-is */ }
-    let clean = text.replace(/```json|```/g,'').trim();
-    // Gemini flash sometimes adds a stray sentence before/after the JSON
-    // despite instructions - pull out just the {...} or [...] block.
-    const match = clean.match(/[\[{][\s\S]*[\]}]/);
-    if(match) clean = match[0];
+    const text = await res.text();
+    const clean = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(clean);
     if(parsed === null || parsed === undefined) return null;
     if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) return null;
@@ -2542,7 +2350,7 @@ async function callClaude(prompt){
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -2797,11 +2605,7 @@ function closeLyricsForm(){
   albumCoverPreview.style.backgroundImage = '';
   albumCoverPreview.textContent = '無圖片';
   clearAlbumCoverBtn.style.display = 'none';
-  songCandidateList.innerHTML = '';
-  selectedSongMeta = null;
-  songSearchStatus.style.display = 'none';
   lyricsInput.value = '';
-  setLyricsTab('auto');
   lyricsCandidates = [];
   lyricsTargetAlbumId = null;
 }
@@ -2819,9 +2623,13 @@ function renderLyricsCandidateRows(){
   });
 }
 
-// Core analysis pipeline, shared by both the "paste lyrics" and "search by
-// song name" flows.
-async function analyzeLyricsText(text, lang){
+document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>{
+  const albumName = albumNameInput.value.trim();
+  const text = lyricsInput.value.trim();
+  const lang = lyricsLangSelect.value;
+  if(!lyricsTargetAlbumId && !albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
+  if(!text){ showToast('請先貼上歌詞'); return; }
+
   lyricsList.innerHTML = '';
   lyricsStatus.style.display = 'block';
   lyricsSelectRow.style.display = 'none';
@@ -2839,13 +2647,13 @@ async function analyzeLyricsText(text, lang){
       lyricsStatus.textContent = `完成！取消勾選你不需要的單字，再按下方加入。`;
       lyricsSelectRow.style.display = 'flex';
       lyricsConfirmRow.style.display = 'flex';
-      return true;
+      return;
     }
     lyricsStatus.textContent = 'AI 暫時無法使用，改用內建規則分析（準確度較低）…';
   }
 
   const words = tokenizeLyrics(text, lang);
-  if(!words.length){ showToast('沒有找到可用的新單字'); lyricsStatus.style.display = 'none'; return false; }
+  if(!words.length){ showToast('沒有找到可用的新單字'); lyricsStatus.style.display = 'none'; return; }
   const lyricLines = text.split(/\n+/).map(l=>l.trim()).filter(Boolean);
   function findSourceLine(word){
     if(LATIN_LANGS.has(lang)){
@@ -2886,49 +2694,6 @@ async function analyzeLyricsText(text, lang){
   lyricsStatus.textContent = `完成！取消勾選你不需要的單字，再按下方加入。`;
   lyricsSelectRow.style.display = 'flex';
   lyricsConfirmRow.style.display = 'flex';
-  return true;
-}
-
-document.getElementById('analyzeLyricsBtn').addEventListener('click', async ()=>{
-  const albumName = albumNameInput.value.trim();
-  const text = lyricsInput.value.trim();
-  const lang = lyricsLangSelect.value;
-  if(!lyricsTargetAlbumId && !albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
-  if(!text){ showToast('請先貼上歌詞'); return; }
-  await analyzeLyricsText(text, lang);
-});
-
-document.getElementById('searchLyricsBtn').addEventListener('click', async ()=>{
-  const albumName = albumNameInput.value.trim();
-  const title = selectedSongMeta ? selectedSongMeta.title : albumName;
-  const artist = selectedSongMeta ? selectedSongMeta.artist : albumArtistInput.value.trim();
-  if(!lyricsTargetAlbumId && !albumName){ showToast('請先輸入專輯名稱'); albumNameInput.focus(); return; }
-  if(!title){ showToast('請先輸入專輯名稱（會用來搜尋歌詞）'); albumNameInput.focus(); return; }
-
-  // If the user picked a result from the iTunes candidate list and hasn't
-  // manually chosen their own cover image, use the official artwork.
-  if(!lyricsTargetAlbumId && !pendingAlbumCover && selectedSongMeta && selectedSongMeta.artworkUrl){
-    pendingAlbumCover = selectedSongMeta.artworkUrl;
-    albumCoverPreview.style.backgroundImage = `url(${pendingAlbumCover})`;
-    albumCoverPreview.textContent = '';
-    clearAlbumCoverBtn.style.display = 'inline';
-  }
-
-  songSearchStatus.style.display = 'block';
-  songSearchStatus.textContent = '搜尋歌詞中…';
-  const text = await fetchLyricsByTitle(title, artist);
-  if(!text){
-    songSearchStatus.textContent = '找不到這首歌的歌詞，請確認專輯名稱／歌手拼法是否正確（可從上方搜尋結果直接點選），或改用「手動」分頁貼上歌詞。';
-    return;
-  }
-  const lang = detectLangFromText(text);
-  if(!lang){
-    songSearchStatus.textContent = '找到的內容看起來不是日文或韓文歌詞（可能抓到錯誤版本或無關內容），請確認上方搜尋結果選對歌曲，或改用「手動」分頁貼上正確歌詞。';
-    return;
-  }
-  songSearchStatus.textContent = '找到歌詞，開始拆解單字…';
-  await analyzeLyricsText(text, lang);
-  songSearchStatus.style.display = 'none';
 });
 
 document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=>{
