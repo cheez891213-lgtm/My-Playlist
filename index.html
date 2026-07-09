@@ -1849,7 +1849,6 @@ const emptySentenceQuiz = document.getElementById('emptySentenceQuiz');
 let sentenceQuizQuestionText = '';
 let sentenceQuizLocked = false;
 let sentenceQuizRequestId = 0;
-let sentenceQuizTargetLang = 'ko';
 
 document.getElementById('quizModeChoiceBtn').addEventListener('click', ()=>{
   quizMode = 'choice';
@@ -2089,10 +2088,6 @@ function buildFallbackSentence(meaning){
   const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
   return t.replace('%W%', meaning);
 }
-// Chinese display names for the target languages this quiz can ask for,
-// used inside the AI prompts below.
-const SENTENCE_QUIZ_LANG_ZH = { ko: '韓文', ja: '日文', en: '英文' };
-
 async function pickSentenceQuestion(){
   const requestId = ++sentenceQuizRequestId;
   const pool = getSentenceQuizPool();
@@ -2114,15 +2109,7 @@ async function pickSentenceQuestion(){
   document.querySelector('#quizSentenceMode .sentence-quiz-actions').style.display = 'flex';
 
   const chosen = pool[Math.floor(Math.random() * pool.length)];
-  // Ask the student to translate into whichever language this specific card
-  // actually is (Japanese or Korean) - previously this was hardcoded to
-  // Korean regardless of the card's language, which made the quiz nonsensical
-  // for Japanese vocabulary.
-  sentenceQuizTargetLang = guessCardLang(chosen);
-  if(!SENTENCE_QUIZ_LANG_ZH[sentenceQuizTargetLang]) sentenceQuizTargetLang = 'ko';
-  const targetLangZh = SENTENCE_QUIZ_LANG_ZH[sentenceQuizTargetLang];
   sentenceQuestionEl.textContent = 'AI 出題中…';
-  sentenceAnswerInputEl.placeholder = `請輸入${targetLangZh}翻譯…`;
   sentenceAnswerInputEl.disabled = true;
   sentenceSubmitBtnEl.disabled = true;
   sentenceQuizQuestionText = '';
@@ -2140,7 +2127,7 @@ async function pickSentenceQuestion(){
   if(requestId !== sentenceQuizRequestId) return; // stale response, a newer question was requested
 
   sentenceQuizQuestionText = (result && result.sentence) ? result.sentence : buildFallbackSentence(meaning);
-  sentenceQuestionEl.textContent = `${sentenceQuizQuestionText}（請翻成${targetLangZh}）`;
+  sentenceQuestionEl.textContent = sentenceQuizQuestionText;
   sentenceAnswerInputEl.disabled = false;
   sentenceSubmitBtnEl.disabled = false;
   sentenceAnswerInputEl.focus();
@@ -2155,8 +2142,7 @@ async function submitSentenceAnswer(){
   sentenceFeedbackEl.textContent = 'AI 批改中…';
   sentenceFeedbackEl.className = 'fill-feedback';
 
-  const targetLangZh = SENTENCE_QUIZ_LANG_ZH[sentenceQuizTargetLang] || '韓文';
-  const prompt = `你是一位嚴謹但親切的${targetLangZh}老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成${targetLangZh}的答案："${raw}"。請判斷這個${targetLangZh}翻譯是否正確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的${targetLangZh}參考翻譯"}。`;
+  const prompt = `你是一位嚴謹但親切的韓文老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成韓文的答案："${raw}"。請判斷這個韓文翻譯是否正確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的韓文參考翻譯"}。`;
   let result = await callAI(prompt);
   if(!result || typeof result.correct !== 'boolean'){
     await new Promise(r=>setTimeout(r, 700));
