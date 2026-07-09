@@ -2072,21 +2072,12 @@ fillInputEl.addEventListener('keydown', (e)=>{
 function getSentenceQuizPool(){
   return getStudyPool().filter(c => c.back && c.back.trim());
 }
-// Generic Chinese sentence templates used as an offline fallback if the AI
-// call fails (e.g. no network, proxy down), so the quiz can still proceed
-// instead of just showing an error.
-const SENTENCE_FALLBACK_TEMPLATES = [
-  '我今天突然想到「%W%」這件事。',
-  '你平常也會用到「%W%」嗎？',
-  '這個週末的計畫跟「%W%」有點關係。',
-  '我朋友最近常常提到「%W%」。',
-  '可以跟我介紹一下「%W%」嗎？',
-  '我覺得「%W%」對我來說很重要。'
+// Different grammatical/tone styles so the AI doesn't keep producing the
+// same kind of sentence every time.
+const SENTENCE_STYLE_HINTS = [
+  '直述句', '疑問句', '否定句', '感嘆句', '假設句（如果...就...）',
+  '建議或命令語氣', '帶點情緒或抱怨語氣的口語句子', '朋友間輕鬆聊天的口吻'
 ];
-function buildFallbackSentence(meaning){
-  const t = SENTENCE_FALLBACK_TEMPLATES[Math.floor(Math.random()*SENTENCE_FALLBACK_TEMPLATES.length)];
-  return t.replace('%W%', meaning);
-}
 async function pickSentenceQuestion(){
   const requestId = ++sentenceQuizRequestId;
   const pool = getSentenceQuizPool();
@@ -2114,18 +2105,29 @@ async function pickSentenceQuestion(){
   sentenceQuizQuestionText = '';
 
   const meaning = chosen.back;
-  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
+  const style = SENTENCE_STYLE_HINTS[Math.floor(Math.random() * SENTENCE_STYLE_HINTS.length)];
+  const prompt = `你是一位中文教材出題老師。請使用這個詞彙的中文意思：${JSON.stringify(meaning)}，設計一句「日常生活中很自然會用到」的中文句子（語意通順、貼近生活情境即可，長度大約 10-25 字）。這次請用「${style}」的句型/語氣來寫，並避免每次都用同樣的句子結構或開頭（例如不要每次都用「我...」開頭，也不需要把詞彙加上引號）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"sentence":"..."}。`;
 
-  // Try twice before giving up, then fall back to a local template so the
-  // quiz can always proceed even if the AI proxy is temporarily unreachable.
-  let result = await callAI(prompt);
-  if(!result || !result.sentence){
+  // Try twice before giving up and showing an error - unless the first
+  // attempt already told us the daily quota is exhausted, in which case
+  // retrying immediately would just waste another (already unavailable) call.
+  let result = await callGeminiProxy(prompt);
+  if((!result || !result.sentence) && !geminiQuotaExceeded){
     await new Promise(r=>setTimeout(r, 700));
-    result = await callAI(prompt);
+    result = await callGeminiProxy(prompt);
   }
   if(requestId !== sentenceQuizRequestId) return; // stale response, a newer question was requested
 
-  sentenceQuizQuestionText = (result && result.sentence) ? result.sentence : buildFallbackSentence(meaning);
+  if(!result || !result.sentence){
+    sentenceQuestionEl.textContent = geminiQuotaExceeded
+      ? 'Gemini 今日免費額度已用完，請明天再試或改用付費方案。'
+      : 'AI 出題失敗，請點選「下一題」重試。';
+    sentenceAnswerInputEl.disabled = true;
+    sentenceSubmitBtnEl.disabled = true;
+    showToast(geminiQuotaExceeded ? 'Gemini 額度已用完' : 'AI 暫時無法使用');
+    return;
+  }
+  sentenceQuizQuestionText = result.sentence;
   sentenceQuestionEl.textContent = sentenceQuizQuestionText;
   sentenceAnswerInputEl.disabled = false;
   sentenceSubmitBtnEl.disabled = false;
@@ -2142,18 +2144,20 @@ async function submitSentenceAnswer(){
   sentenceFeedbackEl.className = 'fill-feedback';
 
   const prompt = `你是一位嚴謹但親切的韓文老師。原句（中文）："${sentenceQuizQuestionText}"。學生翻譯成韓文的答案："${raw}"。請判斷這個韓文翻譯是否正確表達了原句的意思（用字不同沒關係，只要語意正確、文法沒有明顯錯誤即可算正確）。回覆請只用純 JSON 物件，不要加上 markdown 或其他說明文字，格式為 {"correct": true 或 false, "feedback": "一兩句中文講評，指出錯誤或給予鼓勵", "reference": "一個自然的韓文參考翻譯"}。`;
-  let result = await callAI(prompt);
-  if(!result || typeof result.correct !== 'boolean'){
+  let result = await callGeminiProxy(prompt);
+  if((!result || typeof result.correct !== 'boolean') && !geminiQuotaExceeded){
     await new Promise(r=>setTimeout(r, 700));
-    result = await callAI(prompt);
+    result = await callGeminiProxy(prompt);
   }
   if(!result || typeof result.correct !== 'boolean'){
-    sentenceFeedbackEl.textContent = 'AI 批改失敗，請重新送出一次。';
+    sentenceFeedbackEl.textContent = geminiQuotaExceeded
+      ? 'Gemini 今日免費額度已用完，請明天再試或改用付費方案。'
+      : 'AI 批改失敗，請重新送出一次。';
     sentenceFeedbackEl.className = 'fill-feedback wrong';
     sentenceQuizLocked = false;
     sentenceAnswerInputEl.disabled = false;
     sentenceSubmitBtnEl.disabled = false;
-    showToast('AI 暫時無法使用');
+    showToast(geminiQuotaExceeded ? 'Gemini 額度已用完' : 'AI 暫時無法使用');
     return;
   }
   quizScore.total++;
@@ -2506,24 +2510,69 @@ const GEMINI_PROXY_URL = 'https://geminiapikey.cheez891213.workers.dev/';
 // Generic: send any prompt to your Gemini proxy Worker, get back parsed JSON.
 // Explicitly requests the gemini-2.5-flash model (the Worker should honor this
 // field if it forwards it to the Gemini API; ignored otherwise).
+// Set to true whenever the Worker/Gemini reports a 429 quota-exceeded error,
+// so callers can skip an automatic retry (which would just burn more of the
+// scarce daily quota) and show an accurate message instead.
+let geminiQuotaExceeded = false;
+
 async function callGeminiProxy(prompt){
   if(!GEMINI_PROXY_URL || GEMINI_PROXY_URL === 'PASTE_YOUR_WORKER_URL_HERE') return null;
+  geminiQuotaExceeded = false;
   try{
-    const res = await fetch(GEMINI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model: 'gemini-2.5-flash' })
-    });
-    if(!res.ok) return null;
-    const text = await res.text();
-    const clean = text.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(()=>controller.abort(), 15000);
+    let res;
+    try{
+      res = await fetch(GEMINI_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, model: 'gemini-flash-latest' }),
+        signal: controller.signal
+      });
+    }finally{
+      clearTimeout(timeoutId);
+    }
+    if(!res.ok){
+      const errBody = await res.text().catch(()=> '');
+      if(res.status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(errBody)) geminiQuotaExceeded = true;
+      console.error('[GeminiProxy] Worker responded with HTTP', res.status, errBody);
+      return null;
+    }
+    let text = await res.text();
+    // The Worker may relay the raw Gemini API response envelope
+    // (candidates[0].content.parts[0].text) instead of just the model's
+    // text - unwrap it first if that's the shape we got.
+    try{
+      const envelope = JSON.parse(text);
+      const innerText = envelope && envelope.candidates && envelope.candidates[0]
+        && envelope.candidates[0].content && envelope.candidates[0].content.parts
+        && envelope.candidates[0].content.parts[0] && envelope.candidates[0].content.parts[0].text;
+      if(typeof innerText === 'string') text = innerText;
+    }catch(_e){ /* not an envelope, treat text as-is */ }
+    let clean = text.replace(/```json|```/g,'').trim();
+    // Gemini flash sometimes adds a stray sentence before/after the JSON
+    // despite instructions - pull out just the {...} or [...] block.
+    const match = clean.match(/[\[{][\s\S]*[\]}]/);
+    if(match) clean = match[0];
+    let parsed;
+    try{
+      parsed = JSON.parse(clean);
+    }catch(parseErr){
+      console.error('[GeminiProxy] Could not parse JSON from response. Raw text was:', text);
+      return null;
+    }
     if(parsed === null || parsed === undefined) return null;
-    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error) return null;
+    if(typeof parsed === 'object' && !Array.isArray(parsed) && parsed.error){
+      console.error('[GeminiProxy] Response contained an error field:', parsed.error);
+      return null;
+    }
     if(typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0) return null;
     if(Array.isArray(parsed) && parsed.length === 0) return null;
     return parsed;
-  }catch(e){ return null; }
+  }catch(e){
+    console.error('[GeminiProxy] Request failed (network/timeout/etc):', e);
+    return null;
+  }
 }
 
 // Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
@@ -2533,7 +2582,7 @@ async function callClaude(prompt){
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -2563,7 +2612,12 @@ function buildWordTranslationPrompt(words, langName){
 
 async function translateBatchWithGeminiProxy(words, lang){
   const langName = LANG_NAMES[lang] || lang;
-  const parsed = await callGeminiProxy(buildWordTranslationPrompt(words, langName));
+  const prompt = buildWordTranslationPrompt(words, langName);
+  let parsed = await callGeminiProxy(prompt);
+  if((!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) && !geminiQuotaExceeded){
+    await new Promise(r=>setTimeout(r, 500));
+    parsed = await callGeminiProxy(prompt);
+  }
   if(!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const gotAny = words.some(w => parsed[w] && (typeof parsed[w] === 'object' ? parsed[w].translation : parsed[w]));
   return gotAny ? parsed : null;
@@ -2745,11 +2799,20 @@ async function translateWordChunk(words, lang, onProgress){
 
 async function translateAllWords(words, lang, onProgress){
   const CHUNK_SIZE = 25;
+  // Run up to 3 chunk requests in flight at once, matching the 3 Gemini API
+  // keys configured on the Worker, so a large word list spreads across all
+  // of them instead of hammering one key sequentially and getting rate-limited.
+  const CONCURRENCY = 3;
   const chunks = chunkArray(words, CHUNK_SIZE);
-  for(let i=0;i<chunks.length;i++){
-    await translateWordChunk(chunks[i], lang, onProgress);
-    if(i < chunks.length - 1) await new Promise(r=>setTimeout(r, 1200));
+  let next = 0;
+  async function runNext(){
+    while(next < chunks.length){
+      const idx = next++;
+      await translateWordChunk(chunks[idx], lang, onProgress);
+    }
   }
+  const workers = Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, runNext);
+  await Promise.all(workers);
 }
 
 
