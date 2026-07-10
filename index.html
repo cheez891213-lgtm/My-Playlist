@@ -2718,34 +2718,15 @@ async function callGeminiProxy(prompt){
   }
 }
 
-// Generic: send any prompt to Claude (only works inside claude.ai's artifact preview).
-async function callClaude(prompt){
-  try{
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    if(!res.ok) return null;
-    const data = await res.json();
-    const text = (data.content || []).map(b=>b.text || '').join('');
-    const clean = text.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
-    return parsed ?? null;
-  }catch(e){ return null; }
-}
-
-// Tries your Gemini Worker first, then Claude (claude.ai only). Returns parsed
-// JSON (object or array) or null if neither is available/working.
+// Tries your Gemini Worker only. A Claude fallback (calling api.anthropic.com
+// directly) used to run here, but that only ever worked inside claude.ai's
+// artifact preview - it can't be called from a page hosted elsewhere (e.g.
+// GitHub Pages), so it's removed. If Gemini fails/is unavailable, callers
+// fall through to the free translation APIs instead. Returns parsed JSON
+// (object or array) or null.
 async function callAI(prompt){
   const g = await callGeminiProxy(prompt);
   if(g) return g;
-  const c = await callClaude(prompt);
-  if(c) return c;
   return null;
 }
 
@@ -2766,12 +2747,6 @@ async function translateBatchWithGeminiProxy(words, lang){
   return gotAny ? parsed : null;
 }
 
-async function translateBatchWithClaude(words, lang){
-  const langName = LANG_NAMES[lang] || lang;
-  const parsed = await callClaude(buildWordTranslationPrompt(words, langName));
-  return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
-}
-
 // Full-text AI extraction for Japanese: instead of guessing word boundaries
 // locally (which mis-splits things like conditional/conjugation endings),
 // hand the AI the whole lyrics text and let it do real segmentation, giving
@@ -2786,23 +2761,37 @@ async function extractJapaneseWordsWithAI(text){
 
 // Fallback: free public translation APIs, word by word (used if the Claude
 // call above isn't available, e.g. the file was downloaded and opened outside claude.ai).
+// The free fallback APIs are sometimes unreliable for ja/ko -> zh-TW and will
+// silently hand back an English gloss instead of Chinese (MyMemory in
+// particular tends to do this when it has no good translation memory for the
+// pair). Since the target is always zh-TW, a "successful" translation should
+// contain at least one CJK ideograph - if it doesn't, treat it as a failed
+// translation instead of showing the user English text.
+function looksLikeChineseTranslation(t){
+  return !!t && /[\u4e00-\u9fff]/.test(t);
+}
+
 async function translateViaGoogle(word, lang){
   try{
-    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${lang}&tl=zh-TW&dt=t&q=${encodeURIComponent(word)}`);
+    // Use sl=auto instead of the fixed lang: lyrics are often code-switched
+    // (e.g. Korean lines with English phrases mixed in), and forcing a single
+    // source language makes Google's translator skip/pass-through whichever
+    // language doesn't match, leaving parts of the line untranslated.
+    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(word)}`);
     if(!res.ok) return '';
     const data = await res.json();
-    if(data && data[0] && data[0][0] && data[0][0][0]) return data[0][0][0];
-    return '';
+    const t = (data && data[0] && data[0][0] && data[0][0][0]) || '';
+    return looksLikeChineseTranslation(t) ? t : '';
   }catch(e){ return ''; }
 }
 
 async function translateViaMyMemory(word, lang){
   try{
-    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=${lang}|zh-TW`);
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=autodetect|zh-TW`);
     const data = await res.json();
     const t = data && data.responseData ? data.responseData.translatedText : '';
     if(!t || /no query|invalid|warning/i.test(t)) return '';
-    return t;
+    return looksLikeChineseTranslation(t) ? t : '';
   }catch(e){ return ''; }
 }
 
@@ -2912,21 +2901,6 @@ async function translateWordChunk(words, lang, onProgress){
     const missing = [];
     words.forEach(w=>{
       const entry = geminiResult[w];
-      const translation = entry && typeof entry === 'object' ? entry.translation : entry;
-      if(translation){
-        onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
-      }else{
-        missing.push(w);
-      }
-    });
-    if(missing.length) await translateWordsWithFreeFallback(missing, lang, onProgress);
-    return;
-  }
-  const claudeResult = await translateBatchWithClaude(words, lang);
-  if(claudeResult){
-    const missing = [];
-    words.forEach(w=>{
-      const entry = claudeResult[w];
       const translation = entry && typeof entry === 'object' ? entry.translation : entry;
       if(translation){
         onProgress(w, translation, (entry && entry.base) || w, (entry && entry.reading) || '');
@@ -3155,7 +3129,7 @@ document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=
   const lineTranslations = {};
   if(uniqueLines.length){
     const langName = LANG_NAMES[lang] || lang;
-    const sentencePrompt = `Translate each of the following ${langName} song lyric lines into natural Traditional Chinese (zh-TW). Reply with ONLY a raw JSON object mapping each original line (exact text) to its Chinese translation - no markdown fences, no explanation.\n\nLines: ${JSON.stringify(uniqueLines)}`;
+    const sentencePrompt = `Translate each of the following song lyric lines (primarily ${langName}, but some lines may be code-switched and contain words/phrases from other languages mixed in, e.g. English words inside a Korean line) into natural, complete Traditional Chinese (zh-TW). Translate the ENTIRE line - including any embedded words that are in a different language than ${langName} - do not leave any part of the line untranslated or copied verbatim. Reply with ONLY a raw JSON object mapping each original line (exact text) to its full Chinese translation - no markdown fences, no explanation.\n\nLines: ${JSON.stringify(uniqueLines)}`;
     const aiLines = await callAI(sentencePrompt);
     if(aiLines && typeof aiLines === 'object' && !Array.isArray(aiLines)){
       uniqueLines.forEach(line=>{ if(aiLines[line]) lineTranslations[line] = aiLines[line]; });
