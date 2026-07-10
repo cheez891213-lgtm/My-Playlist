@@ -2718,7 +2718,38 @@ async function callGeminiProxy(prompt){
   }
 }
 
-// Tries your Gemini Worker only. A Claude fallback (calling api.anthropic.com
+// Debug helper: open the deployed page, press F12 to open DevTools, go to the
+// Console tab, type `debugGeminiConnection()` and press Enter. It sends a
+// trivial test prompt straight to GEMINI_PROXY_URL and prints exactly what
+// came back (HTTP status, raw response body, and whether it parsed OK), so
+// you can see directly whether the Worker/API key is actually reachable
+// instead of guessing from the app's fallback behavior.
+window.debugGeminiConnection = async function(){
+  console.log('[GeminiDebug] Testing', GEMINI_PROXY_URL, '...');
+  try{
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Reply with only this exact JSON: {"ok":true}', model: 'gemini-flash-latest' })
+    });
+    const bodyText = await res.text();
+    console.log('[GeminiDebug] HTTP status:', res.status, res.statusText);
+    console.log('[GeminiDebug] Raw response body:', bodyText);
+    if(res.ok){
+      console.log('[GeminiDebug] ✅ Worker responded successfully - the connection itself is fine. If lyrics translation still fails, the issue is elsewhere (e.g. prompt/parsing), not connectivity/quota.');
+    }else if(res.status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(bodyText)){
+      console.log('[GeminiDebug] ❌ Worker/Gemini reports quota exhausted (HTTP', res.status + '). This is coming from the Worker or the Gemini API key(s) it uses - check the Worker itself (e.g. Cloudflare dashboard logs) to see which key is being used and why it thinks quota is used up.');
+    }else{
+      console.log('[GeminiDebug] ❌ Worker returned an error. Check the raw response body above for the actual reason (wrong URL, CORS, bad key, Worker code error, etc).');
+    }
+    return { status: res.status, body: bodyText };
+  }catch(e){
+    console.log('[GeminiDebug] ❌ Request never reached/completed - likely CORS, DNS, or the Worker URL being wrong/offline:', e);
+    return { error: String(e) };
+  }
+};
+
+
 // directly) used to run here, but that only ever worked inside claude.ai's
 // artifact preview - it can't be called from a page hosted elsewhere (e.g.
 // GitHub Pages), so it's removed. If Gemini fails/is unavailable, callers
@@ -2791,6 +2822,14 @@ async function translateViaMyMemory(word, lang){
     const data = await res.json();
     const t = data && data.responseData ? data.responseData.translatedText : '';
     if(!t || /no query|invalid|warning/i.test(t)) return '';
+    // MyMemory is a crowd-sourced translation-memory lookup, not a real MT
+    // engine - for unusual/poetic phrases like song lyrics it often has no
+    // good match and returns an unrelated cached translation anyway (e.g.
+    // nonsense like "地方就是地方"). Its own "match" confidence score tells
+    // us how close the match actually was, so reject low-confidence results
+    // instead of showing the user garbage.
+    const match = Number(data && data.responseData && data.responseData.match);
+    if(!isNaN(match) && match < 0.6) return '';
     return looksLikeChineseTranslation(t) ? t : '';
   }catch(e){ return ''; }
 }
