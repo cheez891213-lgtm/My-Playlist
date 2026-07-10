@@ -2649,13 +2649,20 @@ async function callGeminiProxy(prompt){
   // before giving up entirely.
   const MAX_503_RETRIES = 4;
   const BACKOFF_MS = [800, 1600, 3200, 6000];
-  const FALLBACK_MODEL = 'gemini-1.5-flash';
+  // Must be one of the model names the Worker's ALLOWED_MODELS actually
+  // recognizes (currently gemini-2.5-flash/pro/flash-lite/flash-latest) -
+  // otherwise the Worker silently ignores it and falls back to its own
+  // default (gemini-2.5-flash), which defeats the point of "switch to a
+  // different, less-busy model" when that's the one that's overloaded.
+  const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
   try{
-    let res, errBody = '';
+    let res, errBody = '', networkErr = null;
     let modelToUse = 'gemini-flash-latest';
     for(let attempt = 0; attempt <= MAX_503_RETRIES; attempt++){
       const controller = new AbortController();
       const timeoutId = setTimeout(()=>controller.abort(), 15000);
+      networkErr = null;
+      res = null;
       try{
         res = await fetch(GEMINI_PROXY_URL, {
           method: 'POST',
@@ -2663,18 +2670,30 @@ async function callGeminiProxy(prompt){
           body: JSON.stringify({ prompt, model: modelToUse }),
           signal: controller.signal
         });
+      }catch(fetchErr){
+        // Previously an AbortError (15s timeout) or any other network error
+        // here would escape straight to the outer catch and give up
+        // immediately with zero retries - unlike a 503 it never got a second
+        // chance, even though a slow/flaky response is just as transient.
+        // Now it's treated the same as a 503: back off and retry.
+        networkErr = fetchErr;
       }finally{
         clearTimeout(timeoutId);
       }
-      if(res.ok) break;
-      errBody = await res.text().catch(()=> '');
-      if(res.status === 503 && attempt < MAX_503_RETRIES){
+      if(res && res.ok) break;
+      if(res){ errBody = await res.text().catch(()=> ''); }
+      const isRetryableStatus = res && res.status === 503;
+      if((isRetryableStatus || networkErr) && attempt < MAX_503_RETRIES){
         if(attempt === MAX_503_RETRIES - 1) modelToUse = FALLBACK_MODEL;
-        console.warn('[GeminiProxy] Got 503 (model overloaded), retrying in', BACKOFF_MS[attempt], 'ms with model', modelToUse);
+        console.warn('[GeminiProxy]', networkErr ? `Request failed (${networkErr.name || 'network error'}), retrying` : 'Got 503 (model overloaded), retrying', 'in', BACKOFF_MS[attempt], 'ms with model', modelToUse);
         await new Promise(r=>setTimeout(r, BACKOFF_MS[attempt]));
         continue;
       }
       break;
+    }
+    if(networkErr && !res){
+      console.error('[GeminiProxy] Request failed after retries (network/timeout/etc):', networkErr);
+      return null;
     }
     if(!res.ok){
       if(res.status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(errBody)) geminiQuotaExceeded = true;
@@ -3168,15 +3187,34 @@ document.getElementById('addLyricsCardsBtn').addEventListener('click', async ()=
   const lineTranslations = {};
   if(uniqueLines.length){
     const langName = LANG_NAMES[lang] || lang;
-    const sentencePrompt = `Translate each of the following song lyric lines (primarily ${langName}, but some lines may be code-switched and contain words/phrases from other languages mixed in, e.g. English words inside a Korean line) into natural, complete Traditional Chinese (zh-TW). Translate the ENTIRE line - including any embedded words that are in a different language than ${langName} - do not leave any part of the line untranslated or copied verbatim. Reply with ONLY a raw JSON object mapping each original line (exact text) to its full Chinese translation - no markdown fences, no explanation.\n\nLines: ${JSON.stringify(uniqueLines)}`;
-    const aiLines = await callAI(sentencePrompt);
-    if(aiLines && typeof aiLines === 'object' && !Array.isArray(aiLines)){
-      uniqueLines.forEach(line=>{ if(aiLines[line]) lineTranslations[line] = aiLines[line]; });
+    // Previously this asked the AI to return a {originalLine: translation}
+    // object for ALL lines in one shot. With many short/repetitive lyric
+    // lines (e.g. "괜찮아 괜찮아" / "줘 계속, 더 배로"), the model would
+    // sometimes attach the wrong translation to the wrong key - the JSON
+    // was still valid, just misassigned, so it silently showed a random
+    // other line's translation. Splitting into small numbered batches (so
+    // the model tracks translation<->line by position in a short list
+    // instead of having to re-type/match the exact original text as a key
+    // across a long list) makes that kind of cross-line mixup far less
+    // likely, and also fails smaller/safer if one batch has an issue.
+    const CHUNK_SIZE = 8;
+    for(let i = 0; i < uniqueLines.length; i += CHUNK_SIZE){
+      const chunk = uniqueLines.slice(i, i + CHUNK_SIZE);
+      const numbered = chunk.map((line, idx) => `${idx+1}. ${line}`).join('\n');
+      const sentencePrompt = `Translate each of the following ${chunk.length} numbered song lyric lines (primarily ${langName}, but some lines may be code-switched and contain words/phrases from other languages mixed in, e.g. English words inside a Korean line) into natural, complete Traditional Chinese (zh-TW). Translate the ENTIRE line - including any embedded words in a different language - do not leave any part untranslated. These lines may be short and similar-looking - be careful to keep each translation matched to its own correct number, do not swap or reuse a translation across different numbers. Reply with ONLY a raw JSON array of exactly ${chunk.length} strings, in the same order as the numbered list (array[0] = translation of line 1, array[1] = translation of line 2, etc) - no markdown fences, no explanation, no original text, just the translations.\n\n${numbered}`;
+      const aiResult = await callAI(sentencePrompt);
+      console.log('[LyricsDebug] Gemini sentence-translation chunk result:', chunk, '->', aiResult);
+      if(Array.isArray(aiResult) && aiResult.length === chunk.length){
+        chunk.forEach((line, idx) => { if(aiResult[idx]) lineTranslations[line] = aiResult[idx]; });
+      }
     }
     const stillMissing = uniqueLines.filter(line => !lineTranslations[line]);
+    if(stillMissing.length) console.log('[LyricsDebug] Lines Gemini did NOT translate, falling back to Google/MyMemory:', stillMissing);
     for(const line of stillMissing){
       let t = await translateViaGoogle(line, lang);
-      if(!t) t = await translateViaMyMemory(line, lang);
+      if(t){ console.log('[LyricsDebug] Google translated:', line, '->', t); }
+      if(!t){ t = await translateViaMyMemory(line, lang); if(t) console.log('[LyricsDebug] MyMemory translated:', line, '->', t); }
+      if(!t) console.log('[LyricsDebug] Both Google and MyMemory failed for:', line);
       lineTranslations[line] = t || '';
       await new Promise(r=>setTimeout(r, 150));
     }
